@@ -1,0 +1,14 @@
+{
+	"Targets": [
+		{
+			"Name": "LotA",
+			"Path": "..\\Source\\LotA.Target.cs",
+			"Type": "Game"
+		},
+		{
+			"Name": "LotAEditor",
+			"Path": "..\\Source\\LotAEditor.Target.cs",
+			"Type": "Editor"
+		}
+	]
+}

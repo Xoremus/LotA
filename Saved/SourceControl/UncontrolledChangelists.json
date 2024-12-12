@@ -1,0 +1,40 @@
+{
+	"version": 1,
+	"changelists": [
+		{
+			"guid": "00000000000000000000000000000000",
+			"description": "Default Uncontrolled Changelist",
+			"files": [
+				"D:/UnrealProjects/LotA/Content/StarterContent/Architecture/Floor_400x400.uasset",
+				"D:/UnrealProjects/LotA/Content/Inventory/Widgets/WBP_Inventory.uasset",
+				"D:/UnrealProjects/LotA/Content/Inventory/Widgets/WBP_MainInventory.uasset",
+				"D:/UnrealProjects/LotA/Content/Inventory/Widgets/WBP_InventorySlot.uasset",
+				"D:/UnrealProjects/LotA/Content/Inventory/Widgets/WBP_EquipmentSlot.uasset",
+				"D:/UnrealProjects/LotA/Content/Inventory/Textures/2_27.uasset",
+				"D:/UnrealProjects/LotA/Content/Inventory/Textures/vecteezy_game-ui-loading-progress-bars-cartoon-vector-set_13280826.uasset",
+				"D:/UnrealProjects/LotA/Content/Inventory/Textures/upgrade.uasset",
+				"D:/UnrealProjects/LotA/Content/Inventory/Textures/T_StandardBagIcon.uasset",
+				"D:/UnrealProjects/LotA/Content/Inventory/Textures/T_MagicBagIcon.uasset",
+				"D:/UnrealProjects/LotA/Content/Inventory/Textures/T_HealthPotion.uasset",
+				"D:/UnrealProjects/LotA/Content/Inventory/Textures/lbs-measure-weight-icon.uasset",
+				"D:/UnrealProjects/LotA/Content/Inventory/Textures/Goldredone.uasset",
+				"D:/UnrealProjects/LotA/Content/Inventory/Textures/circle.uasset",
+				"D:/UnrealProjects/LotA/Content/Inventory/Textures/anvil.uasset",
+				"D:/UnrealProjects/LotA/Content/Inventory/Textures/2_27_Sprite_0.uasset",
+				"D:/UnrealProjects/LotA/Content/Inventory/Widgets/WBP_DragVisual.uasset",
+				"D:/UnrealProjects/LotA/Content/Inventory/Widgets/WBP_BagWidget.uasset",
+				"D:/UnrealProjects/LotA/Content/Textures/2_27_Sprite_0.uasset",
+				"D:/UnrealProjects/LotA/Content/Textures/anvil.uasset",
+				"D:/UnrealProjects/LotA/Content/Textures/circle.uasset",
+				"D:/UnrealProjects/LotA/Content/Textures/Goldredone.uasset",
+				"D:/UnrealProjects/LotA/Content/Textures/lbs-measure-weight-icon.uasset",
+				"D:/UnrealProjects/LotA/Content/Textures/T_HealthPotion.uasset",
+				"D:/UnrealProjects/LotA/Content/Textures/T_MagicBagIcon.uasset",
+				"D:/UnrealProjects/LotA/Content/Textures/T_StandardBagIcon.uasset",
+				"D:/UnrealProjects/LotA/Content/Textures/upgrade.uasset",
+				"D:/UnrealProjects/LotA/Content/Textures/vecteezy_game-ui-loading-progress-bars-cartoon-vector-set_13280826.uasset",
+				"D:/UnrealProjects/LotA/Content/Textures/2_27.uasset"
+			]
+		}
+	]
+}
