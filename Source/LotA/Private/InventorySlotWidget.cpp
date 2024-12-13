@@ -2,9 +2,9 @@
 #include "InventorySlotWidget.h"
 #include "Components/Image.h"
 #include "Components/TextBlock.h"
-#include "DragDropVisual.h"
 #include "Blueprint/WidgetBlueprintLibrary.h"
 #include "InventoryDragDropOperation.h"
+#include "DragDropVisual.h"
 
 UInventorySlotWidget::UInventorySlotWidget(const FObjectInitializer& ObjectInitializer)
     : Super(ObjectInitializer)
@@ -21,12 +21,6 @@ void UInventorySlotWidget::NativeConstruct()
 
 void UInventorySlotWidget::SetItemDetails(const FS_ItemInfo& InItemInfo, int32 Quantity)
 {
-    if (bIsInDragOperation)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("Attempting to clear slot during drag operation - ignoring"));
-        return;
-    }
-
     CurrentItemInfo = InItemInfo;
     ItemQuantity = Quantity;
     UpdateVisuals();
@@ -52,19 +46,23 @@ void UInventorySlotWidget::ClearSlot()
 
 void UInventorySlotWidget::UpdateVisuals()
 {
-    if (!CurrentItemInfo.ItemIcon || ItemQuantity <= 0)
-    {
-        if (ItemIcon)
-            ItemIcon->SetVisibility(ESlateVisibility::Hidden);
-        if (QuantityText)
-            QuantityText->SetVisibility(ESlateVisibility::Hidden);
-        return;
-    }
+    UE_LOG(LogTemp, Warning, TEXT("UpdateVisuals - ItemQuantity: %d, HasIcon: %s"), 
+        ItemQuantity, 
+        CurrentItemInfo.ItemIcon ? TEXT("Yes") : TEXT("No"));
 
     if (ItemIcon)
     {
-        ItemIcon->SetBrushFromTexture(CurrentItemInfo.ItemIcon);
-        ItemIcon->SetVisibility(ESlateVisibility::Visible);
+        if (CurrentItemInfo.ItemIcon)
+        {
+            ItemIcon->SetBrushFromTexture(CurrentItemInfo.ItemIcon);
+            ItemIcon->SetVisibility(ESlateVisibility::Visible);
+            UE_LOG(LogTemp, Warning, TEXT("Set icon visible"));
+        }
+        else
+        {
+            ItemIcon->SetVisibility(ESlateVisibility::Hidden);
+            UE_LOG(LogTemp, Warning, TEXT("Set icon hidden"));
+        }
     }
 
     if (QuantityText)
@@ -73,10 +71,12 @@ void UInventorySlotWidget::UpdateVisuals()
         {
             QuantityText->SetText(FText::AsNumber(ItemQuantity));
             QuantityText->SetVisibility(ESlateVisibility::Visible);
+            UE_LOG(LogTemp, Warning, TEXT("Set quantity text: %d"), ItemQuantity);
         }
         else
         {
             QuantityText->SetVisibility(ESlateVisibility::Hidden);
+            UE_LOG(LogTemp, Warning, TEXT("Hide quantity text"));
         }
     }
 }
@@ -88,27 +88,45 @@ FReply UInventorySlotWidget::NativeOnMouseButtonDown(const FGeometry& InGeometry
 
     if (InMouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
     {
-        // Store the original data for the drag operation
-        DraggedItemInfo = CurrentItemInfo;
+        UE_LOG(LogTemp, Warning, TEXT("MouseDown - Starting ItemQuantity: %d"), ItemQuantity);
         
+        // Save the current state
+        DraggedItemInfo = CurrentItemInfo;
+        bool bIsSplitting = false;
+
         if (InMouseEvent.IsShiftDown() && ItemQuantity > 1)
         {
             DraggedQuantity = 1;
-            // Just reduce quantity, don't clear
             ItemQuantity -= 1;
-            UpdateVisuals();
+            bIsSplitting = true;
+            // Store the original item info for the remaining stack
+            FS_ItemInfo RemainingItemInfo = CurrentItemInfo;
+            UE_LOG(LogTemp, Warning, TEXT("Shift-Split: Dragged: %d, Remaining: %d"), DraggedQuantity, ItemQuantity);
+    
+            // Update the current slot with remaining items
+            SetItemDetails(RemainingItemInfo, ItemQuantity);
         }
+
         else if (InMouseEvent.IsControlDown() && ItemQuantity > 1)
         {
             DraggedQuantity = ItemQuantity / 2;
-            // Just reduce quantity, don't clear
             ItemQuantity -= DraggedQuantity;
-            UpdateVisuals();
+            bIsSplitting = true;
+            UE_LOG(LogTemp, Warning, TEXT("Ctrl-Split: Dragged: %d, Remaining: %d"), DraggedQuantity, ItemQuantity);
         }
         else
         {
             DraggedQuantity = ItemQuantity;
+            UE_LOG(LogTemp, Warning, TEXT("Full Stack Drag: %d"), DraggedQuantity);
             ClearSlot();
+        }
+
+        // Only update visuals if we're splitting
+        if (bIsSplitting)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("Updating slot with remaining quantity: %d"), ItemQuantity);
+            CurrentItemInfo.ItemIcon = DraggedItemInfo.ItemIcon;  // Ensure icon is preserved
+            UpdateVisuals();
         }
 
         bIsInDragOperation = true;
@@ -120,11 +138,15 @@ FReply UInventorySlotWidget::NativeOnMouseButtonDown(const FGeometry& InGeometry
 
 void UInventorySlotWidget::NativeOnDragDetected(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent, UDragDropOperation*& OutOperation)
 {
+    UE_LOG(LogTemp, Warning, TEXT("=== Drag Detected ==="));
+    UE_LOG(LogTemp, Warning, TEXT("Current Slot Quantity: %d"), ItemQuantity);
+    UE_LOG(LogTemp, Warning, TEXT("Dragged Quantity: %d"), DraggedQuantity);
+
     UInventoryDragDropOperation* DragDropOp = Cast<UInventoryDragDropOperation>(UWidgetBlueprintLibrary::CreateDragDropOperation(UInventoryDragDropOperation::StaticClass()));
     
     if (DragDropOp)
     {
-        // Store the original item data
+        // Set up drag operation data
         DragDropOp->DraggedItem = DraggedItemInfo;
         DragDropOp->OriginalQuantity = DraggedQuantity;
         DragDropOp->SourceSlot = this;
@@ -139,14 +161,17 @@ void UInventorySlotWidget::NativeOnDragDetected(const FGeometry& InGeometry, con
             DragDropOp->Pivot = EDragPivot::MouseDown;
         }
 
+        UE_LOG(LogTemp, Warning, TEXT("After Drag Setup - Slot Quantity: %d"), ItemQuantity);
         OutOperation = DragDropOp;
     }
 }
 
 bool UInventorySlotWidget::NativeOnDrop(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
 {
+    UE_LOG(LogTemp, Warning, TEXT("=== On Drop ==="));
+    
     UInventoryDragDropOperation* InventoryDragDrop = Cast<UInventoryDragDropOperation>(InOperation);
-    if (!InventoryDragDrop || !InventoryDragDrop->SourceSlot)
+    if (!InventoryDragDrop)
         return false;
 
     // If dropping on same slot, do nothing
@@ -163,43 +188,38 @@ bool UInventorySlotWidget::NativeOnDrop(const FGeometry& InGeometry, const FDrag
             ItemQuantity += AmountToAdd;
             UpdateVisuals();
 
-            // Update source slot
-            UInventorySlotWidget* SourceSlot = Cast<UInventorySlotWidget>(InventoryDragDrop->SourceSlot);
-            if (SourceSlot)
+            // If this was a split operation, the source slot should keep its remaining items
+            if (InventoryDragDrop->bSplitStack)
             {
-                if (SourceSlot->ItemQuantity > AmountToAdd)
-                {
-                    SourceSlot->ItemQuantity -= AmountToAdd;
-                    SourceSlot->UpdateVisuals();
-                }
-                else
-                {
-                    SourceSlot->ClearSlot();
-                }
+                return true;
+            }
+            else
+            {
+                InventoryDragDrop->SourceSlot->ClearSlot();
             }
             return true;
         }
     }
 
     // Handle normal swap
-    FS_ItemInfo TempItem = CurrentItemInfo;
-    int32 TempQuantity = ItemQuantity;
+    FS_ItemInfo TargetItem = CurrentItemInfo;
+    int32 TargetQuantity = ItemQuantity;
 
     SetItemDetails(InventoryDragDrop->DraggedItem, InventoryDragDrop->OriginalQuantity);
 
-    if (UInventorySlotWidget* SourceSlot = Cast<UInventorySlotWidget>(InventoryDragDrop->SourceSlot))
+    // Only update source slot if it's not a split operation
+    if (!InventoryDragDrop->bSplitStack)
     {
-        if (TempQuantity > 0)
+        if (TargetQuantity > 0)
         {
-            SourceSlot->SetItemDetails(TempItem, TempQuantity);
+            InventoryDragDrop->SourceSlot->SetItemDetails(TargetItem, TargetQuantity);
         }
         else
         {
-            SourceSlot->ClearSlot();
+            InventoryDragDrop->SourceSlot->ClearSlot();
         }
     }
 
-    bIsInDragOperation = false;
     return true;
 }
 
