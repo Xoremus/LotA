@@ -1,3 +1,4 @@
+// DraggableWindowBase.h
 #pragma once
 
 #include "CoreMinimal.h"
@@ -14,9 +15,11 @@ public:
 
 protected:
 	virtual void NativeConstruct() override;
-
-	// Handles dragging of the window
 	virtual FReply NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
-	virtual void NativeOnDragDetected(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent, UDragDropOperation*& OutOperation) override;
-};
+	virtual FReply NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+	virtual FReply NativeOnMouseMove(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 
+private:
+	bool bIsDragging;
+	FVector2D DragOffset;
+};

@@ -88,30 +88,17 @@ void UInventoryWidget::CreateInventorySlots()
     }
 }
 
-void UInventoryWidget::AddTestItem(int32 SlotIndex)
+void UInventoryWidget::AddTestItem(int32 SlotIndex, const FS_ItemInfo& Item, int32 Quantity)
 {
-   if (!InventorySlots.IsValidIndex(SlotIndex))
-   {
-       UE_LOG(LogTemp, Warning, TEXT("Invalid slot index for test item"));
-       return;
-   }
+    if (!InventorySlots.IsValidIndex(SlotIndex))
+    {
+        UE_LOG(LogTemp, Error, TEXT("Invalid slot index: %d"), SlotIndex);
+        return;
+    }
 
-   if (UInventorySlotWidget* InventorySlot = InventorySlots[SlotIndex])
-   {
-       // Create test item info
-       FS_ItemInfo TestItem;
-       TestItem.ItemID = FName("Item_HealthPotion");
-       TestItem.ItemName = FText::FromString("Health Potion");
-       TestItem.ItemType = EItemType::Consumable;
-       TestItem.Weight = 0.5f;
-       TestItem.MaxStackSize = 20;
-       TestItem.ItemIcon = Cast<UTexture2D>(StaticLoadObject(UTexture2D::StaticClass(), nullptr, TEXT("/Game/Inventory/Textures/T_HealthPotion")));
-
-       if (TestItem.ItemIcon)
-       {
-           UE_LOG(LogTemp, Warning, TEXT("Icon loaded successfully for test item"));
-       }
-
-       InventorySlot->SetItemDetails(TestItem, 5);
-   }
+    if (UInventorySlotWidget* InventorySlot = InventorySlots[SlotIndex])
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Setting slot %d with item: %s"), SlotIndex, *Item.ItemName.ToString());
+        InventorySlot->SetItemDetails(Item, Quantity);
+    }
 }

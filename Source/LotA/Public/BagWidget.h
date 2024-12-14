@@ -1,10 +1,14 @@
+// BagWidget.h
 #pragma once
 
 #include "CoreMinimal.h"
 #include "DraggableWindowBase.h"
+#include "S_ItemInfo.h"
 #include "BagWidget.generated.h"
 
-class UUniformGridPanel;  // Changed from UInventoryWidget
+class UUniformGridPanel;
+class UInventorySlotWidget;
+class UBagComponent;
 
 UCLASS()
 class LOTA_API UBagWidget : public UDraggableWindowBase
@@ -14,12 +18,25 @@ class LOTA_API UBagWidget : public UDraggableWindowBase
 public:
 	UBagWidget(const FObjectInitializer& ObjectInitializer);
 
-	UFUNCTION(BlueprintCallable, Category = "Bag")
-	void InitializeBag(int32 Rows, int32 Columns);
+	void InitializeBag(const FS_ItemInfo& BagInfo);
+	void SetOwningBagComponent(UBagComponent* BagComp);
 
 protected:
 	virtual void NativeConstruct() override;
+	virtual void NativeDestruct() override;
 
 	UPROPERTY(meta = (BindWidget))
-	UUniformGridPanel* InventoryGrid;  // Changed to match your blueprint
+	UUniformGridPanel* InventoryGrid;
+
+	UPROPERTY()
+	TArray<UInventorySlotWidget*> BagSlots;
+
+private:
+	UPROPERTY()
+	FS_ItemInfo BagItemInfo;
+
+	UPROPERTY()
+	UBagComponent* OwningBagComponent;
+
+	void CreateBagSlots();
 };

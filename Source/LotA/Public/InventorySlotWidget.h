@@ -1,8 +1,11 @@
+// InventorySlotWidget.h
 #pragma once
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
 #include "S_ItemInfo.h"
+#include "BagWidget.h"
+#include "BagComponent.h"
 #include "InventorySlotWidget.generated.h"
 
 class UImage;
@@ -16,17 +19,15 @@ class LOTA_API UInventorySlotWidget : public UUserWidget
 public:
     UInventorySlotWidget(const FObjectInitializer& ObjectInitializer);
 
-    // Set item details for the slot
     UFUNCTION(BlueprintCallable, Category = "Inventory Slot")
     void SetItemDetails(const FS_ItemInfo& InItemInfo, int32 Quantity);
 
-    // Clear the slot
     UFUNCTION(BlueprintCallable, Category = "Inventory Slot")
     void ClearSlot();
 
     UFUNCTION(BlueprintPure, Category = "Inventory")
     int32 GetQuantity() const { return ItemQuantity; }
-    
+
 protected:
     virtual void NativeConstruct() override;
     virtual FReply NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
@@ -47,10 +48,10 @@ private:
     UPROPERTY()
     int32 ItemQuantity;
 
-    // Drag operation data
     bool bIsInDragOperation;
     FS_ItemInfo DraggedItemInfo;
     int32 DraggedQuantity;
 
     void UpdateVisuals();
+    void OpenBag();
 };
