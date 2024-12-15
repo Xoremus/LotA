@@ -14,17 +14,30 @@ UBagWidget::UBagWidget(const FObjectInitializer& ObjectInitializer)
 void UBagWidget::NativeConstruct()
 {
     Super::NativeConstruct();
+
+    if (CloseButton)
+    {
+        CloseButton->OnClicked.AddDynamic(this, &UBagWidget::OnCloseButtonClicked);
+    }
 }
 
 void UBagWidget::NativeDestruct()
 {
-    Super::NativeDestruct();
-    
-    // Close bag when widget is destroyed
     if (OwningBagComponent)
     {
         OwningBagComponent->CloseBag();
     }
+
+    Super::NativeDestruct();
+}
+
+void UBagWidget::OnCloseButtonClicked()
+{
+    if (OwningBagComponent)
+    {
+        OwningBagComponent->CloseBag();
+    }
+    RemoveFromParent();
 }
 
 void UBagWidget::SetOwningBagComponent(UBagComponent* BagComp)
@@ -47,6 +60,11 @@ void UBagWidget::InitializeBag(const FS_ItemInfo& BagInfo)
     int32 Columns = FMath::CeilToInt(FMath::Sqrt(static_cast<float>(TotalSlots)));
     int32 Rows = FMath::CeilToInt(static_cast<float>(TotalSlots) / Columns);
 
+    if (WindowTitle)
+    {
+        WindowTitle->SetText(BagInfo.ItemName);
+    }
+
     if (InventoryGrid)
     {
         InventoryGrid->ClearChildren();
@@ -54,6 +72,7 @@ void UBagWidget::InitializeBag(const FS_ItemInfo& BagInfo)
         CreateBagSlots();
     }
 }
+
 
 void UBagWidget::CreateBagSlots()
 {

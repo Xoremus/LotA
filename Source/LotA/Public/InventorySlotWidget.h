@@ -4,10 +4,10 @@
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
 #include "S_ItemInfo.h"
-#include "BagWidget.h"
-#include "BagComponent.h"
 #include "InventorySlotWidget.generated.h"
 
+// Forward declare instead of including
+class UBagWidget;
 class UImage;
 class UTextBlock;
 
