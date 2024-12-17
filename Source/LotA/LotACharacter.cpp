@@ -46,6 +46,10 @@ ALotACharacter::ALotACharacter()
     // Create and setup the bag component
     BagComponent = CreateDefaultSubobject<UBagComponent>(TEXT("BagComponent"));
     BagComponent->SetIsReplicated(true);
+
+    // Create stats component
+    StatsComponent = CreateDefaultSubobject<UCharacterStatsComponent>(TEXT("StatsComponent"));
+    
 }
 
 void ALotACharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const

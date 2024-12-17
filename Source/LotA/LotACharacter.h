@@ -6,6 +6,8 @@
 #include "Logging/LogMacros.h"
 #include "BagComponent.h"
 #include "Net/UnrealNetwork.h"
+#include "CharacterStatsComponent.h"
+#include "Components/ActorComponent.h"
 #include "LotACharacter.generated.h"
 
 class USpringArmComponent;
@@ -59,6 +61,9 @@ public:
     ALotACharacter();
     
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Stats")
+    class UCharacterStatsComponent* StatsComponent;
 
 protected:
     /** Called for movement input */

@@ -28,6 +28,9 @@ public:
     UFUNCTION(BlueprintPure, Category = "Inventory")
     int32 GetQuantity() const { return ItemQuantity; }
 
+    UFUNCTION(BlueprintCallable, Category = "Inventory")
+    const FS_ItemInfo& GetItemInfo() const { return CurrentItemInfo; }
+
 protected:
     virtual void NativeConstruct() override;
     virtual FReply NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
