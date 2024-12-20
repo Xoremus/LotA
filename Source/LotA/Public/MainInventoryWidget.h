@@ -26,6 +26,9 @@ public:
 	UFUNCTION()
 	void UpdateStatsDisplay();  // New function for updating stats
 
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	void UpdateInventoryWeight();
+
 	UPROPERTY(meta = (BindWidget))
 	UInventoryWidget* WBP_Inventory;
 

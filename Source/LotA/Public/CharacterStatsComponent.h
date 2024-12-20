@@ -1,4 +1,3 @@
-// CharacterStatsComponent.h
 #pragma once
 
 #include "CoreMinimal.h"
@@ -17,17 +16,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
 	float STR;
 
-	// Weight Calculations
+	// Only declare the function here
 	UFUNCTION(BlueprintPure, Category = "Stats")
 	float GetBaseCarryWeight() const;
 
-	UFUNCTION(BlueprintPure, Category = "Stats")
-	float GetModifiedCarryWeight() const;
-
 protected:
 	virtual void BeginPlay() override;
-
-private:
-	// Formula: Base carry weight = Strength * 10 (this gives a reasonable starting point)
-	const float WEIGHT_PER_STRENGTH = 10.0f;
 };

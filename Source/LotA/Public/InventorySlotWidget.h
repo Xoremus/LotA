@@ -4,6 +4,7 @@
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
 #include "S_ItemInfo.h"
+#include "DestroyConfirmationWidget.h"
 #include "InventorySlotWidget.generated.h"
 
 // Forward declare instead of including
@@ -57,4 +58,7 @@ private:
 
     void UpdateVisuals();
     void OpenBag();
+
+    UFUNCTION()
+    void OnItemDestroyConfirmed(const FS_ItemInfo& DestroyedItem);
 };

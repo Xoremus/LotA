@@ -3,11 +3,9 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "Logging/LogMacros.h"
-#include "BagComponent.h"
-#include "Net/UnrealNetwork.h"
 #include "CharacterStatsComponent.h"
-#include "Components/ActorComponent.h"
 #include "LotACharacter.generated.h"
 
 class USpringArmComponent;
@@ -53,17 +51,20 @@ class ALotACharacter : public ACharacter
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
     UInputAction* IA_Inventory;
 
-    /** Bag Component for inventory system */
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Inventory", Replicated, meta = (AllowPrivateAccess = "true"))
-    class UBagComponent* BagComponent;
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+    UInputAction* IA_TestSpeed;
 
 public:
     ALotACharacter();
-    
-    virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
+    float BaseWalkSpeed;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Stats")
-    class UCharacterStatsComponent* StatsComponent;
+    UCharacterStatsComponent* StatsComponent;
+
+    UFUNCTION(BlueprintCallable, Category = "Movement")
+    void TestSpeedChange(float NewSpeed);
 
 protected:
     /** Called for movement input */
@@ -71,7 +72,9 @@ protected:
 
     /** Called for looking input */
     void Look(const FInputActionValue& Value);
-          
+
+    void OnTestSpeed();
+            
 protected:
     // APawn interface
     virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
@@ -84,6 +87,4 @@ public:
     FORCEINLINE class USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
     /** Returns FollowCamera subobject **/
     FORCEINLINE class UCameraComponent* GetFollowCamera() const { return FollowCamera; }
-    /** Returns BagComponent subobject **/
-    FORCEINLINE class UBagComponent* GetBagComponent() const { return BagComponent; }
 };
