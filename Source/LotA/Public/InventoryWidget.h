@@ -20,7 +20,11 @@ public:
 	void InitializeInventory(int32 Rows, int32 Columns);
 
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
-	void AddTestItem(int32 SlotIndex);
+	void AddTestItem(int32 SlotIndex, const FS_ItemInfo& Item, int32 Quantity);
+
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	const TArray<UInventorySlotWidget*>& GetInventorySlots() const { return InventorySlots; }
+	
 
 protected:
 	virtual void NativeConstruct() override;

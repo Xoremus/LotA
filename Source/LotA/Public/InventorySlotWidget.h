@@ -1,12 +1,16 @@
+// InventorySlotWidget.h
 #pragma once
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
 #include "S_ItemInfo.h"
+#include "DestroyConfirmationWidget.h"
 #include "InventorySlotWidget.generated.h"
 
+class UBagWidget;
 class UImage;
 class UTextBlock;
+class UMainInventoryWidget;
 
 UCLASS()
 class LOTA_API UInventorySlotWidget : public UUserWidget
@@ -16,13 +20,17 @@ class LOTA_API UInventorySlotWidget : public UUserWidget
 public:
     UInventorySlotWidget(const FObjectInitializer& ObjectInitializer);
 
-    // Set item details for the slot
     UFUNCTION(BlueprintCallable, Category = "Inventory Slot")
     void SetItemDetails(const FS_ItemInfo& InItemInfo, int32 Quantity);
 
-    // Clear the slot
     UFUNCTION(BlueprintCallable, Category = "Inventory Slot")
     void ClearSlot();
+
+    UFUNCTION(BlueprintPure, Category = "Inventory")
+    int32 GetQuantity() const { return ItemQuantity; }
+
+    UFUNCTION(BlueprintCallable, Category = "Inventory")
+    const FS_ItemInfo& GetItemInfo() const { return CurrentItemInfo; }
 
 protected:
     virtual void NativeConstruct() override;
@@ -44,10 +52,17 @@ private:
     UPROPERTY()
     int32 ItemQuantity;
 
-    // Drag operation data
     bool bIsInDragOperation;
     FS_ItemInfo DraggedItemInfo;
     int32 DraggedQuantity;
 
     void UpdateVisuals();
+    void OpenBag();
+    UMainInventoryWidget* GetMainInventoryWidget() const;
+
+    UFUNCTION()
+    void OnItemDestroyConfirmed(const FS_ItemInfo& DestroyedItem);
+
+    UFUNCTION()
+    void OnItemDestroyCancelled();
 };

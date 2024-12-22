@@ -11,25 +11,14 @@ UDragDropVisual::UDragDropVisual(const FObjectInitializer& ObjectInitializer)
 void UDragDropVisual::NativeConstruct()
 {
 	Super::NativeConstruct();
-    
-	if (ItemIcon)
-	{
-		ItemIcon->SetVisibility(ESlateVisibility::Hidden);
-	}
-
-	if (QuantityText)
-	{
-		QuantityText->SetVisibility(ESlateVisibility::Hidden);
-	}
 }
 
 void UDragDropVisual::SetItemIcon(UTexture2D* Icon)
 {
-	if (ItemIcon && Icon)
+	if (ItemIcon)
 	{
 		ItemIcon->SetBrushFromTexture(Icon);
-		ItemIcon->SetVisibility(ESlateVisibility::Visible);
-		UE_LOG(LogTemp, Warning, TEXT("DragDropVisual: Setting icon image"));
+		ItemIcon->SetVisibility(Icon ? ESlateVisibility::Visible : ESlateVisibility::Hidden);
 	}
 }
 
