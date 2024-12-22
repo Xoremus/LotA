@@ -1,11 +1,21 @@
-// BagComponent.h
 #pragma once
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "S_ItemInfo.h"
-#include "InventorySlotDataComponent.h"
 #include "BagComponent.generated.h"
+
+USTRUCT()
+struct FBagSlotData
+{
+    GENERATED_BODY()
+
+    UPROPERTY()
+    FS_ItemInfo ItemInfo;
+
+    UPROPERTY()
+    int32 Quantity = 0;
+};
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnBagOpened, UBagComponent*, Bag);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnBagClosed, UBagComponent*, Bag);
@@ -25,6 +35,10 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Bag")
     void CloseBag();
 
+    // Force close regardless of current state
+    UFUNCTION(BlueprintCallable, Category = "Bag")
+    void ForceClose();
+
     // Check if bag is currently open
     UFUNCTION(BlueprintPure, Category = "Bag")
     bool IsBagOpen() const { return bIsOpen; }
@@ -41,6 +55,10 @@ public:
     UFUNCTION(BlueprintPure, Category = "Bag")
     float GetWeightReduction() const { return BagInfo.WeightReductionPercentage; }
 
+    // Get the bag's item info
+    UFUNCTION(BlueprintPure, Category = "Bag")
+    const FS_ItemInfo& GetBagInfo() const { return BagInfo; }
+
     // Set bag data
     UFUNCTION(BlueprintCallable, Category = "Bag")
     void InitializeBag(const FS_ItemInfo& BagItemInfo);
@@ -49,6 +67,16 @@ public:
     UFUNCTION(BlueprintPure, Category = "Bag")
     int32 GetBagSlots() const { return BagInfo.BagSlots; }
 
+    // Item management
+    UFUNCTION(BlueprintCallable, Category = "Bag")
+    bool AddItem(int32 SlotIndex, const FS_ItemInfo& Item, int32 Quantity);
+
+    UFUNCTION(BlueprintCallable, Category = "Bag")
+    bool GetSlotContent(int32 SlotIndex, FS_ItemInfo& OutItem, int32& OutQuantity) const;
+
+    UFUNCTION(BlueprintCallable, Category = "Bag")
+    bool RemoveItem(int32 SlotIndex);
+
     // Events for bag state changes
     UPROPERTY(BlueprintAssignable, Category = "Bag")
     FOnBagOpened OnBagOpened;
@@ -56,13 +84,9 @@ public:
     UPROPERTY(BlueprintAssignable, Category = "Bag")
     FOnBagClosed OnBagClosed;
 
-    // Get bag inventory slots
-    UFUNCTION(BlueprintPure, Category = "Bag")
-    const TArray<UInventorySlotDataComponent*>& GetInventorySlots() const { return InventorySlots; }
-
 protected:
     virtual void BeginPlay() override;
-    virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+    virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 private:
     // Whether the bag is currently open
@@ -73,18 +97,11 @@ private:
     UPROPERTY(Replicated)
     FS_ItemInfo BagInfo;
 
-    // Array of inventory slots in the bag
+    // Array to store bag contents
     UPROPERTY()
-    TArray<UInventorySlotDataComponent*> InventorySlots;
-
-    // Reference to the UI widget
-    UPROPERTY()
-    class UWidget* BagWidget;
+    TArray<FBagSlotData> BagContents;
 
     // Handle replication of open state
     UFUNCTION()
     void OnRep_IsOpen();
-
-    // Initialize inventory slots
-    void CreateInventorySlots();
 };

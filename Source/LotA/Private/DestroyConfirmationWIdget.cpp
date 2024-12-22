@@ -1,6 +1,7 @@
 // DestroyConfirmationWidget.cpp
 #include "DestroyConfirmationWidget.h"
 #include "Components/Button.h"
+#include "Components/TextBlock.h"
 
 void UDestroyConfirmationWidget::NativeConstruct()
 {
@@ -21,17 +22,23 @@ void UDestroyConfirmationWidget::SetItemToDestroy(const FS_ItemInfo& Item, int32
 {
 	ItemInfo = Item;
 	ItemAmount = Amount;
+
+	if (ConfirmationText)
+	{
+		FString Message = FString::Printf(TEXT("Are you sure you want to destroy %d %s?"), 
+			Amount, *Item.ItemName.ToString());
+		ConfirmationText->SetText(FText::FromString(Message));
+	}
 }
 
 void UDestroyConfirmationWidget::OnDestroyClicked()
 {
-	// Broadcast the item being destroyed
 	OnDestroyConfirmed.Broadcast(ItemInfo);
 	RemoveFromParent();
 }
 
 void UDestroyConfirmationWidget::OnCancelClicked()
 {
-	// Just close the widget
+	OnDestroyCancelled.Broadcast();
 	RemoveFromParent();
 }

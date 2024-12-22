@@ -1,4 +1,3 @@
-// BagComponent.cpp
 #include "BagComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "GameFramework/PlayerController.h"
@@ -13,28 +12,6 @@ UBagComponent::UBagComponent()
 void UBagComponent::BeginPlay()
 {
     Super::BeginPlay();
-
-    // Create inventory slots if we're the server
-    if (GetOwnerRole() == ROLE_Authority)
-    {
-        CreateInventorySlots();
-    }
-}
-
-void UBagComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
-{
-    Super::EndPlay(EndPlayReason);
-    CloseBag();
-
-    // Clean up inventory slots
-    for (auto* Slot : InventorySlots)
-    {
-        if (Slot)
-        {
-            Slot->DestroyComponent();
-        }
-    }
-    InventorySlots.Empty();
 }
 
 void UBagComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -47,49 +24,49 @@ void UBagComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLif
 
 bool UBagComponent::OpenBag()
 {
-    if (bIsOpen || !BagInfo.ItemID.IsValid())
-        return false;
-
-    bIsOpen = true;
-    OnBagOpened.Broadcast(this);
-
-    // Only create widget on local client
-    if (GetOwner()->HasLocalNetOwner())
+    if (bIsOpen)
     {
-        // Widget creation will be handled by the inventory system
+        UE_LOG(LogTemp, Warning, TEXT("[BagComponent] Cannot open bag - already open. Forcing close first."));
+        ForceClose();
     }
 
+    if (!BagInfo.ItemID.IsValid())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[BagComponent] Cannot open bag - invalid bag info"));
+        return false;
+    }
+
+    UE_LOG(LogTemp, Warning, TEXT("[BagComponent] Opening bag: %s"), *BagInfo.ItemID.ToString());
+    bIsOpen = true;
+    OnBagOpened.Broadcast(this);
     return true;
 }
 
 void UBagComponent::CloseBag()
 {
     if (!bIsOpen)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[BagComponent] Bag already closed"));
         return;
+    }
 
+    UE_LOG(LogTemp, Warning, TEXT("[BagComponent] Closing bag: %s"), *BagInfo.ItemID.ToString());
     bIsOpen = false;
     OnBagClosed.Broadcast(this);
-
-    // Widget removal will be handled by the inventory system
 }
 
-void UBagComponent::OnRep_IsOpen()
+void UBagComponent::ForceClose()
 {
-    if (bIsOpen)
-    {
-        OnBagOpened.Broadcast(this);
-    }
-    else
-    {
-        OnBagClosed.Broadcast(this);
-    }
+    UE_LOG(LogTemp, Warning, TEXT("[BagComponent] Force closing bag: %s"), *BagInfo.ItemID.ToString());
+    bIsOpen = false;
+    OnBagClosed.Broadcast(this);
 }
 
 bool UBagComponent::HasItems() const
 {
-    for (const auto* Slot : InventorySlots)
+    for (const FBagSlotData& SlotData : BagContents)
     {
-        if (Slot && !Slot->IsEmpty())
+        if (SlotData.Quantity > 0)
         {
             return true;
         }
@@ -102,11 +79,11 @@ float UBagComponent::GetTotalWeight() const
     float TotalWeight = BagInfo.Weight;
 
     // Add weight of contents
-    for (const auto* Slot : InventorySlots)
+    for (const FBagSlotData& SlotData : BagContents)
     {
-        if (Slot && !Slot->IsEmpty())
+        if (SlotData.Quantity > 0)
         {
-            TotalWeight += Slot->ItemData.Weight * Slot->StackCount;
+            TotalWeight += SlotData.ItemInfo.Weight * SlotData.Quantity;
         }
     }
 
@@ -126,30 +103,79 @@ void UBagComponent::InitializeBag(const FS_ItemInfo& BagItemInfo)
     if (GetOwnerRole() == ROLE_Authority)
     {
         BagInfo = BagItemInfo;
-        CreateInventorySlots();
+        
+        // Initialize or resize the bag contents array
+        if (BagContents.Num() != BagInfo.BagSlots)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("Initializing bag with %d slots"), BagInfo.BagSlots);
+            BagContents.SetNum(BagInfo.BagSlots);
+        }
     }
 }
 
-void UBagComponent::CreateInventorySlots()
+bool UBagComponent::AddItem(int32 SlotIndex, const FS_ItemInfo& Item, int32 Quantity)
 {
-    // Clear existing slots
-    for (auto* Slot : InventorySlots)
+    if (SlotIndex < 0 || SlotIndex >= BagContents.Num())
     {
-        if (Slot)
-        {
-            Slot->DestroyComponent();
-        }
+        UE_LOG(LogTemp, Error, TEXT("AddItem: Invalid slot index %d (Max: %d)"), SlotIndex, BagContents.Num());
+        return false;
     }
-    InventorySlots.Empty();
 
-    // Create new slots based on BagInfo.BagSlots
-    for (int32 i = 0; i < BagInfo.BagSlots; ++i)
+    // Store the item data
+    BagContents[SlotIndex].ItemInfo = Item;
+    BagContents[SlotIndex].Quantity = Quantity;
+    
+    UE_LOG(LogTemp, Warning, TEXT("Added item to bag slot %d: %s (Quantity: %d)"), 
+        SlotIndex, *Item.ItemName.ToString(), Quantity);
+    
+    return true;
+}
+
+bool UBagComponent::GetSlotContent(int32 SlotIndex, FS_ItemInfo& OutItem, int32& OutQuantity) const
+{
+    if (SlotIndex < 0 || SlotIndex >= BagContents.Num())
     {
-        UInventorySlotDataComponent* NewSlot = NewObject<UInventorySlotDataComponent>(GetOwner());
-        if (NewSlot)
-        {
-            NewSlot->RegisterComponent();
-            InventorySlots.Add(NewSlot);
-        }
+        UE_LOG(LogTemp, Error, TEXT("GetSlotContent: Invalid slot index %d (Max: %d)"), SlotIndex, BagContents.Num());
+        return false;
+    }
+
+    OutItem = BagContents[SlotIndex].ItemInfo;
+    OutQuantity = BagContents[SlotIndex].Quantity;
+    
+    if (OutQuantity > 0)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Retrieved item from bag slot %d: %s (Quantity: %d)"), 
+            SlotIndex, *OutItem.ItemName.ToString(), OutQuantity);
+    }
+    
+    return true;
+}
+
+bool UBagComponent::RemoveItem(int32 SlotIndex)
+{
+    if (SlotIndex < 0 || SlotIndex >= BagContents.Num())
+    {
+        UE_LOG(LogTemp, Error, TEXT("RemoveItem: Invalid slot index %d (Max: %d)"), SlotIndex, BagContents.Num());
+        return false;
+    }
+
+    UE_LOG(LogTemp, Warning, TEXT("Removing item from bag slot %d"), SlotIndex);
+    
+    BagContents[SlotIndex].ItemInfo = FS_ItemInfo();
+    BagContents[SlotIndex].Quantity = 0;
+    
+    return true;
+}
+
+void UBagComponent::OnRep_IsOpen()
+{
+    UE_LOG(LogTemp, Warning, TEXT("[BagComponent] Bag state changed - IsOpen: %s"), bIsOpen ? TEXT("true") : TEXT("false"));
+    if (bIsOpen)
+    {
+        OnBagOpened.Broadcast(this);
+    }
+    else
+    {
+        OnBagClosed.Broadcast(this);
     }
 }

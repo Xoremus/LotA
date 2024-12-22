@@ -7,10 +7,10 @@
 #include "DestroyConfirmationWidget.h"
 #include "InventorySlotWidget.generated.h"
 
-// Forward declare instead of including
 class UBagWidget;
 class UImage;
 class UTextBlock;
+class UMainInventoryWidget;
 
 UCLASS()
 class LOTA_API UInventorySlotWidget : public UUserWidget
@@ -58,7 +58,11 @@ private:
 
     void UpdateVisuals();
     void OpenBag();
+    UMainInventoryWidget* GetMainInventoryWidget() const;
 
     UFUNCTION()
     void OnItemDestroyConfirmed(const FS_ItemInfo& DestroyedItem);
+
+    UFUNCTION()
+    void OnItemDestroyCancelled();
 };

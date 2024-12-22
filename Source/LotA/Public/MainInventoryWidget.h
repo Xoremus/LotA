@@ -8,7 +8,6 @@
 #include "CharacterStatsComponent.h"
 #include "MainInventoryWidget.generated.h"
 
-// MainInventoryWidget.h - Add the text binding
 UCLASS()
 class LOTA_API UMainInventoryWidget : public UUserWidget
 {
@@ -20,14 +19,17 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	void AddTestItems();
 
-	UFUNCTION()
-	void UpdateWeightDisplay();
-
-	UFUNCTION()
-	void UpdateStatsDisplay();  // New function for updating stats
-
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	void UpdateInventoryWeight();
+
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	void UpdateStatsDisplay();
+
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	void UpdateWeightDisplay();
+
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	float CalculateTotalInventoryWeight() const;
 
 	UPROPERTY(meta = (BindWidget))
 	UInventoryWidget* WBP_Inventory;
@@ -37,11 +39,9 @@ public:
 	UTextBlock* WeightText;
 
 	UPROPERTY(meta = (BindWidget))
-	UTextBlock* StrengthText;  // Add binding for STR text
+	UTextBlock* StrengthText;
 
 private:
 	UPROPERTY()
 	class UCharacterStatsComponent* StatsComponent;
-
-	float CalculateTotalInventoryWeight() const;
 };

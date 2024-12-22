@@ -1,4 +1,3 @@
-// BagWidget.h
 #pragma once
 
 #include "CoreMinimal.h"
@@ -10,7 +9,6 @@
 #include "BagComponent.h"
 #include "BagWidget.generated.h"
 
-
 UCLASS()
 class LOTA_API UBagWidget : public UDraggableWindowBase
 {
@@ -20,7 +18,10 @@ public:
 	UBagWidget(const FObjectInitializer& ObjectInitializer);
 
 	void InitializeBag(const FS_ItemInfo& BagInfo);
-	void SetOwningBagComponent(class UBagComponent* BagComp);  // Add class keyword here
+	void SetOwningBagComponent(UBagComponent* BagComp);
+
+	UBagComponent* GetOwningBagComponent() const { return OwningBagComponent; }
+	const TArray<class UInventorySlotWidget*>& GetBagSlots() const { return BagSlots; }
 
 protected:
 	virtual void NativeConstruct() override;
@@ -36,7 +37,7 @@ protected:
 	UUniformGridPanel* InventoryGrid;
 
 	UPROPERTY()
-	TArray<class UInventorySlotWidget*> BagSlots;  // Add class keyword here
+	TArray<class UInventorySlotWidget*> BagSlots;
 
 	UFUNCTION()
 	void OnCloseButtonClicked();
@@ -46,7 +47,7 @@ private:
 	FS_ItemInfo BagItemInfo;
 
 	UPROPERTY()
-	class UBagComponent* OwningBagComponent;  // Add class keyword here
+	UBagComponent* OwningBagComponent;
 
 	void CreateBagSlots();
 };
