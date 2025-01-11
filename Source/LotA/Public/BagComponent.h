@@ -93,6 +93,7 @@ protected:
     void OnRep_IsOpen();
 
 private:
+    bool bPendingRemoval;
     bool bIsSaving;
     bool bIsClosing;
     bool bIsUpdatingWeight;

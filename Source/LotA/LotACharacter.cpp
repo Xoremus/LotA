@@ -80,6 +80,16 @@ UBagComponent* ALotACharacter::AddBagComponent(const FS_ItemInfo& BagInfo)
     if (Existing && IsValid(Existing))
     {
         UE_LOG(LogTemp, Warning, TEXT("AddBagComponent: Using existing bag %s"), *BagKey.ToString());
+
+        // Find the saved state
+        int32 SavedStateIndex = BagSaveData.SavedBags.IndexOfByPredicate([BagKey](const FBagState& State) {
+            return State.BagKey == BagKey;
+        });
+
+        if (SavedStateIndex != INDEX_NONE)
+        {
+            Existing->LoadState(BagSaveData.SavedBags[SavedStateIndex]);
+        }
         return Existing;
     }
 
@@ -91,18 +101,21 @@ UBagComponent* ALotACharacter::AddBagComponent(const FS_ItemInfo& BagInfo)
         NewBag->InitializeBag(BagInfo);
 
         // Look for saved state
-        int32 FoundIndex = BagSaveData.SavedBags.IndexOfByPredicate([BagKey](const FBagState& State) {
-            return State.BagKey == BagKey;
-        });
-
-        if (FoundIndex != INDEX_NONE)
+        FBagSavedState SavedState;
+        if (GetSavedBagState(BagKey, SavedState))
         {
             UE_LOG(LogTemp, Warning, TEXT("AddBagComponent: Loading saved state for %s"), *BagKey.ToString());
-            NewBag->LoadState(BagSaveData.SavedBags[FoundIndex]);
+            
+            FBagState State;
+            State.BagKey = BagKey;
+            State.BagInfo = SavedState.BagInfo;
+            State.SlotStates = SavedState.SlotStates;
+            NewBag->LoadState(State);
         }
 
         ActiveBagComponents.Add(BagKey, NewBag);
         NewBag->OnWeightChanged.AddDynamic(this, &ALotACharacter::OnBagWeightChanged);
+        UE_LOG(LogTemp, Warning, TEXT("AddBagComponent: Created and registered new bag component for %s"), *BagKey.ToString());
     }
     return NewBag;
 }

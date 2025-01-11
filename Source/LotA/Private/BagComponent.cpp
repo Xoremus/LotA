@@ -57,7 +57,7 @@ bool UBagComponent::OpenBag()
 
 void UBagComponent::CloseBag()
 {
-    if (bIsClosing)
+    if (bIsClosing || bPendingRemoval)
         return;
 
     bIsClosing = true;
@@ -69,7 +69,7 @@ void UBagComponent::CloseBag()
 
 void UBagComponent::ForceClose()
 {
-    if (bIsClosing)
+    if (bIsClosing || bPendingRemoval)
         return;
 
     bIsClosing = true;
@@ -78,7 +78,8 @@ void UBagComponent::ForceClose()
     OnBagClosed.Broadcast(this);
     bIsClosing = false;
 
-    // Clean up component from owner
+    // Only remove component when explicitly forced to close
+    bPendingRemoval = true;
     if (ALotACharacter* Character = Cast<ALotACharacter>(GetOwner()))
     {
         Character->RemoveBagComponent(this);

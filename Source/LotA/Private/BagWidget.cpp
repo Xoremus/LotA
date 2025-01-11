@@ -26,15 +26,8 @@ void UBagWidget::NativeDestruct()
     {
         // Save state before destroying
         OwningBagComponent->SaveState();
-        OwningBagComponent->CloseBag();
+        OwningBagComponent->CloseBag();  // Don't force close, just regular close
         OwningBagComponent->OnSlotUpdated.RemoveAll(this);
-        
-        // Clean up when widget is destroyed
-        if (ALotACharacter* Character = Cast<ALotACharacter>(OwningBagComponent->GetOwner()))
-        {
-            Character->RemoveBagComponent(OwningBagComponent);
-        }
-        
         OwningBagComponent = nullptr;
     }
     Super::NativeDestruct();

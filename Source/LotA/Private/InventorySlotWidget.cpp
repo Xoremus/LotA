@@ -169,12 +169,7 @@ void UInventorySlotWidget::NativeOnDragDetected(const FGeometry& InGeometry, con
                 if (BagComp->IsBagOpen())
                 {
                     UE_LOG(LogTemp, Warning, TEXT("Forcing bag %s to close."), *BagKey.ToString());
-                    BagComp->ForceClose();
-                }
-                else
-                {
-                    // Just clean up the component if bag isn't open
-                    Character->RemoveBagComponent(BagComp);
+                    BagComp->ForceClose();  // This will handle removal
                 }
             }
         }
