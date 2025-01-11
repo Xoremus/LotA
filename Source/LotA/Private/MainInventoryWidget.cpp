@@ -1,15 +1,15 @@
+// MainInventoryWidget.cpp
 #include "MainInventoryWidget.h"
 #include "GameFramework/PlayerController.h"
 #include "LotA/LotACharacter.h"
 #include "InventorySlotWidget.h"
-#include "GameFramework/CharacterMovementComponent.h"
-#include "CharacterStatsComponent.h"
-#include "Components/Button.h"
-#include "Components/TextBlock.h"
 
 void UMainInventoryWidget::NativeConstruct()
 {
     Super::NativeConstruct();
+
+    LastTotalWeight = 0.0f;
+    bWeightUpdatePending = false;
 
     if (ExitButton)
     {
@@ -34,7 +34,7 @@ void UMainInventoryWidget::NativeConstruct()
     {
         UE_LOG(LogTemp, Warning, TEXT("InventoryWidget successfully bound in MainInventoryWidget."));
         AddTestItems();
-        UpdateWeightDisplay();
+        UpdateInventoryWeight();
     }
     else
     {
@@ -62,52 +62,63 @@ void UMainInventoryWidget::SetGameOnlyMode()
     }
 }
 
-void UMainInventoryWidget::UpdateInventoryWeight()
+void UMainInventoryWidget::RequestWeightUpdate()
 {
-    UpdateWeightDisplay();
+    if (bWeightUpdatePending)
+        return;
+
+    bWeightUpdatePending = true;
+    
+    if (UWorld* World = GetWorld())
+    {
+        World->GetTimerManager().SetTimer(WeightUpdateTimer,
+            [this]()
+            {
+                UpdateInventoryWeight();
+                bWeightUpdatePending = false;
+            },
+            0.1f, false);
+    }
 }
 
-void UMainInventoryWidget::UpdateWeightDisplay()
+void UMainInventoryWidget::UpdateInventoryWeight()
 {
     if (!WeightText || !StatsComponent) return;
 
     float CurrentWeight = CalculateTotalInventoryWeight();
     float MaxWeight = StatsComponent->GetBaseCarryWeight();
 
-    FString WeightString = FString::Printf(TEXT("%.1f/%.1f"), CurrentWeight, MaxWeight);
-    WeightText->SetText(FText::FromString(WeightString));
-
-    if (CurrentWeight > MaxWeight)
+    // Only update if weight actually changed
+    if (!FMath::IsNearlyEqual(LastTotalWeight, CurrentWeight))
     {
-        WeightText->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 0.0f, 0.0f, 1.0f)));
+        LastTotalWeight = CurrentWeight;
+        FString WeightString = FString::Printf(TEXT("%.1f/%.1f"), CurrentWeight, MaxWeight);
+        WeightText->SetText(FText::FromString(WeightString));
 
-        if (ALotACharacter* Character = Cast<ALotACharacter>(GetOwningPlayerPawn()))
+        if (CurrentWeight > MaxWeight)
         {
-            if (UCharacterMovementComponent* MovementComp = Character->GetCharacterMovement())
+            WeightText->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 0.0f, 0.0f, 1.0f)));
+
+            if (ALotACharacter* Character = Cast<ALotACharacter>(GetOwningPlayerPawn()))
             {
-                float OverweightRatio = CurrentWeight / MaxWeight;
-                float SpeedMultiplier = FMath::Clamp(1.0f - ((OverweightRatio - 1.0f) * 1.0f), 0.25f, 0.9f);
-
-                UE_LOG(LogTemp, Warning, TEXT("Applying speed penalty - Current Weight: %.1f, Max Weight: %.1f, Ratio: %.2f, Multiplier: %.2f"), 
-                    CurrentWeight, MaxWeight, OverweightRatio, SpeedMultiplier);
-
-                MovementComp->MaxWalkSpeed = Character->BaseWalkSpeed * SpeedMultiplier;
-                MovementComp->GroundFriction = 2.0f * SpeedMultiplier;
-                MovementComp->BrakingDecelerationWalking = 1000.0f * SpeedMultiplier;
+                if (UCharacterMovementComponent* MovementComp = Character->GetCharacterMovement())
+                {
+                    float OverweightRatio = CurrentWeight / MaxWeight;
+                    float SpeedMultiplier = FMath::Clamp(1.0f - ((OverweightRatio - 1.0f) * 1.0f), 0.25f, 0.9f);
+                    MovementComp->MaxWalkSpeed = Character->BaseWalkSpeed * SpeedMultiplier;
+                }
             }
         }
-    }
-    else
-    {
-        WeightText->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 1.0f, 1.0f, 1.0f)));
-
-        if (ALotACharacter* Character = Cast<ALotACharacter>(GetOwningPlayerPawn()))
+        else
         {
-            if (UCharacterMovementComponent* MovementComp = Character->GetCharacterMovement())
+            WeightText->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 1.0f, 1.0f, 1.0f)));
+
+            if (ALotACharacter* Character = Cast<ALotACharacter>(GetOwningPlayerPawn()))
             {
-                MovementComp->MaxWalkSpeed = Character->BaseWalkSpeed;
-                MovementComp->GroundFriction = 8.0f;
-                MovementComp->BrakingDecelerationWalking = 2000.0f;
+                if (UCharacterMovementComponent* MovementComp = Character->GetCharacterMovement())
+                {
+                    MovementComp->MaxWalkSpeed = Character->BaseWalkSpeed;
+                }
             }
         }
     }
@@ -128,23 +139,16 @@ float UMainInventoryWidget::CalculateTotalInventoryWeight() const
     {
         const TArray<UInventorySlotWidget*>& InventorySlots = WBP_Inventory->GetInventorySlots();
         
-        UE_LOG(LogTemp, Warning, TEXT("Calculating total weight - Number of slots: %d"), InventorySlots.Num());
-        
         for (const UInventorySlotWidget* SlotWidget : InventorySlots)
         {
             if (SlotWidget && SlotWidget->GetQuantity() > 0)
             {
                 const FS_ItemInfo& ItemInfo = SlotWidget->GetItemInfo();
-                float ItemWeight = ItemInfo.Weight * SlotWidget->GetQuantity();
-                TotalWeight += ItemWeight;
-                
-                UE_LOG(LogTemp, Warning, TEXT("Slot weight: %.1f (Item: %s, Quantity: %d)"), 
-                    ItemWeight, *ItemInfo.ItemName.ToString(), SlotWidget->GetQuantity());
+                TotalWeight += ItemInfo.Weight * SlotWidget->GetQuantity();
             }
         }
     }
 
-    UE_LOG(LogTemp, Warning, TEXT("Total calculated weight: %.1f"), TotalWeight);
     return TotalWeight;
 }
 

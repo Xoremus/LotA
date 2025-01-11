@@ -53,7 +53,6 @@ protected:
 
 private:
 	void CreateBagSlots();
-	void UpdateSlotVisuals(int32 SlotIndex, const FS_ItemInfo& ItemInfo, int32 Quantity);
 	bool ValidateSlotIndex(int32 SlotIndex) const;
 
 	UPROPERTY()

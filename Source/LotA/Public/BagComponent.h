@@ -1,3 +1,4 @@
+// BagComponent.h
 #pragma once
 
 #include "CoreMinimal.h"
@@ -20,12 +21,6 @@ public:
 
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
     virtual void BeginPlay() override;
-
-    // State Management
-    void LoadState(const FBagState& State);
-    void SaveState(FBagState& OutState) const;
-    void UpdateWeight();
-    void UpdateBagState();
 
     // Basic Operations
     UFUNCTION(BlueprintCallable, Category = "Bag")
@@ -50,16 +45,14 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Bag")
     bool TryRemoveItem(int32 SlotIndex);
 
-    UFUNCTION(BlueprintCallable, Category = "Bag")
-    bool TryMoveItem(int32 FromSlot, int32 ToSlot);
+    // State Management
+    void LoadState(const FBagState& State);
+    void SaveState();
+    void RequestWeightUpdate();
+    void SetSuppressSave(bool bSuppress) { bSuppressSave = bSuppress; }
+    float GetLastCalculatedWeight() const { return LastCalculatedWeight; }
 
     // Getters
-    UFUNCTION(BlueprintPure, Category = "Bag")
-    bool GetSlotContent(int32 SlotIndex, FS_ItemInfo& OutItem, int32& OutQuantity) const;
-
-    UFUNCTION(BlueprintPure, Category = "Bag")
-    int32 GetFirstEmptySlot() const;
-
     UFUNCTION(BlueprintPure, Category = "Bag")
     const FS_ItemInfo& GetBagInfo() const { return BagState.BagInfo; }
 
@@ -72,20 +65,21 @@ public:
     UFUNCTION(BlueprintPure, Category = "Bag")
     const TArray<FBagSlotState>& GetSlotStates() const { return BagState.SlotStates; }
 
-    UFUNCTION(BlueprintCallable, Category = "Bag")
-    void SetSlotStates(const TArray<FBagSlotState>& NewStates);
+public:
+    void UpdateWeight();
+    void NotifySlotUpdated(int32 SlotIndex);
 
-    // Events
-    UPROPERTY(BlueprintAssignable, Category = "Bag")
+    // Delegates
+    UPROPERTY(BlueprintAssignable, Category = "Events")
     FOnBagOpened OnBagOpened;
 
-    UPROPERTY(BlueprintAssignable, Category = "Bag")
+    UPROPERTY(BlueprintAssignable, Category = "Events")
     FOnBagClosed OnBagClosed;
 
-    UPROPERTY(BlueprintAssignable, Category = "Bag")
+    UPROPERTY(BlueprintAssignable, Category = "Events")
     FOnSlotUpdated OnSlotUpdated;
 
-    UPROPERTY(BlueprintAssignable, Category = "Bag")
+    UPROPERTY(BlueprintAssignable, Category = "Events")
     FOnWeightChanged OnWeightChanged;
 
 protected:
@@ -98,6 +92,13 @@ protected:
     UFUNCTION()
     void OnRep_IsOpen();
 
-    void NotifySlotUpdated(int32 SlotIndex);
-    void LogOperation(const FString& Operation, const FString& Details) const;
+private:
+    bool bIsSaving;
+    bool bIsClosing;
+    bool bIsUpdatingWeight;
+    bool bSuppressSave;
+    bool bPendingWeightUpdate;
+    float LastCalculatedWeight;
+    FTimerHandle SaveDebounceTimer;
+    FTimerHandle WeightUpdateTimer;
 };

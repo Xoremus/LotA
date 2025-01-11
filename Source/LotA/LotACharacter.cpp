@@ -238,6 +238,23 @@ void ALotACharacter::OnTotalWeightChanged(float NewTotalWeight)
     GetCharacterMovement()->MaxWalkSpeed = BaseWalkSpeed * SpeedMultiplier;
 }
 
+void ALotACharacter::RemoveBagComponent(UBagComponent* BagComp)
+{
+    if (!BagComp) return;
+
+    FName BagKey = *FString::Printf(TEXT("Bag_%s"), *BagComp->GetBagInfo().ItemID.ToString());
+    UE_LOG(LogTemp, Warning, TEXT("Removing bag component for %s"), *BagKey.ToString());
+    
+    if (UBagComponent** Found = ActiveBagComponents.Find(BagKey))
+    {
+        if (*Found == BagComp)
+        {
+            ActiveBagComponents.Remove(BagKey);
+            UE_LOG(LogTemp, Warning, TEXT("Successfully removed bag component %s"), *BagKey.ToString());
+        }
+    }
+}
+
 float ALotACharacter::GetTotalBagsWeight() const
 {
     return BagSaveData.GetTotalTopLevelWeight();

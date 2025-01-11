@@ -102,6 +102,8 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Inventory")
     void OnTotalWeightChanged(float NewTotalWeight);
 
+    void RemoveBagComponent(UBagComponent* BagComp);
+
 protected:
     virtual void BeginPlay() override;
     virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;

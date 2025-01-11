@@ -1,3 +1,4 @@
+// MainInventoryWidget.h
 #pragma once
 
 #include "CoreMinimal.h"
@@ -12,52 +13,54 @@
 UCLASS()
 class LOTA_API UMainInventoryWidget : public UUserWidget
 {
-	GENERATED_BODY()
+    GENERATED_BODY()
 
 public:
-	virtual void NativeConstruct() override;
+    virtual void NativeConstruct() override;
 
-	UFUNCTION(BlueprintCallable, Category = "Inventory")
-	void AddTestItems();
+    UFUNCTION(BlueprintCallable, Category = "Inventory")
+    void AddTestItems();
 
-	UFUNCTION(BlueprintCallable, Category = "Inventory")
-	void UpdateInventoryWeight();
+    UFUNCTION(BlueprintCallable, Category = "Inventory")
+    void RequestWeightUpdate();
 
-	UFUNCTION(BlueprintCallable, Category = "Inventory")
-	void UpdateStatsDisplay();
+    UFUNCTION(BlueprintCallable, Category = "Inventory")
+    void UpdateStatsDisplay();
 
-	UFUNCTION(BlueprintCallable, Category = "Inventory")
-	void UpdateWeightDisplay();
+    UFUNCTION(BlueprintPure, Category = "Inventory")
+    float CalculateTotalInventoryWeight() const;
 
-	UFUNCTION(BlueprintPure, Category = "Inventory")
-	float CalculateTotalInventoryWeight() const;
+    UPROPERTY(meta = (BindWidget))
+    UInventoryWidget* WBP_Inventory;
 
-	UPROPERTY(meta = (BindWidget))
-	UInventoryWidget* WBP_Inventory;
+    // UI Elements
+    UPROPERTY(meta = (BindWidget))
+    UTextBlock* WeightText;
 
-	// UI Elements
-	UPROPERTY(meta = (BindWidget))
-	UTextBlock* WeightText;
-
-	UPROPERTY(meta = (BindWidget))
-	UTextBlock* StrengthText;
+    UPROPERTY(meta = (BindWidget))
+    UTextBlock* StrengthText;
 
 protected:
-	UFUNCTION()
-	void OnDoneButtonClicked();
+    UFUNCTION()
+    void OnDoneButtonClicked();
 
-	UFUNCTION()
-	void OnExitButtonClicked();
+    UFUNCTION()
+    void OnExitButtonClicked();
 
-	UPROPERTY(meta = (BindWidget))
-	UButton* ExitButton;
+    UPROPERTY(meta = (BindWidget))
+    UButton* ExitButton;
 
-	UPROPERTY(meta = (BindWidget))
-	UButton* DoneButton;
+    UPROPERTY(meta = (BindWidget))
+    UButton* DoneButton;
 
 private:
-	UPROPERTY()
-	UCharacterStatsComponent* StatsComponent;
+    UPROPERTY()
+    UCharacterStatsComponent* StatsComponent;
 
-	void SetGameOnlyMode();
+    float LastTotalWeight;
+    bool bWeightUpdatePending;
+    FTimerHandle WeightUpdateTimer;
+
+    void UpdateInventoryWeight();
+    void SetGameOnlyMode();
 };
