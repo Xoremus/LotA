@@ -1,4 +1,3 @@
-// BagComponent.cpp (fixed version)
 #include "BagComponent.h"
 #include "LotA/LotACharacter.h"
 #include "Net/UnrealNetwork.h"
@@ -20,6 +19,7 @@ UBagComponent::UBagComponent(const FObjectInitializer& ObjectInitializer)
 void UBagComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
     Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
     DOREPLIFETIME(UBagComponent, BagState);
     DOREPLIFETIME(UBagComponent, bIsOpen);
 }
@@ -40,7 +40,6 @@ bool UBagComponent::OpenBag()
     if (!bIsOpen)
     {
         UE_LOG(LogTemp, Warning, TEXT("Opening bag %s"), *BagState.BagKey.ToString());
-
         bIsOpen = true;
 
         // Notify all slots when opening to ensure visual sync
@@ -51,7 +50,6 @@ bool UBagComponent::OpenBag()
 
         OnBagOpened.Broadcast(this);
     }
-
     return true;
 }
 
@@ -121,6 +119,7 @@ bool UBagComponent::CanAcceptItem(const FS_ItemInfo& Item, int32 TargetSlot) con
     return true;
 }
 
+/** Local add item (no networking). */
 bool UBagComponent::TryAddItem(const FS_ItemInfo& Item, int32 Quantity, int32 TargetSlot)
 {
     if (!CanAcceptItem(Item, TargetSlot))
@@ -132,7 +131,7 @@ bool UBagComponent::TryAddItem(const FS_ItemInfo& Item, int32 Quantity, int32 Ta
     BagState.SlotStates[TargetSlot].ItemInfo = Item;
     BagState.SlotStates[TargetSlot].Quantity = Quantity;
 
-    UE_LOG(LogTemp, Warning, TEXT("TryAddItem: Added %s (x%d) to slot %d"), 
+    UE_LOG(LogTemp, Warning, TEXT("TryAddItem: %s (x%d) -> slot %d"), 
         *Item.ItemName.ToString(), Quantity, TargetSlot);
 
     // Save state first, then notify
@@ -143,6 +142,7 @@ bool UBagComponent::TryAddItem(const FS_ItemInfo& Item, int32 Quantity, int32 Ta
     return true;
 }
 
+/** Local remove item (no networking). */
 bool UBagComponent::TryRemoveItem(int32 SlotIndex)
 {
     if (!BagState.SlotStates.IsValidIndex(SlotIndex))
@@ -151,7 +151,7 @@ bool UBagComponent::TryRemoveItem(int32 SlotIndex)
         return false;
     }
 
-    UE_LOG(LogTemp, Warning, TEXT("TryRemoveItem: Removing item from slot %d"), SlotIndex);
+    UE_LOG(LogTemp, Warning, TEXT("TryRemoveItem: Removing from slot %d"), SlotIndex);
     BagState.SlotStates[SlotIndex].Clear();
     SaveState();
     NotifySlotUpdated(SlotIndex);
@@ -159,6 +159,7 @@ bool UBagComponent::TryRemoveItem(int32 SlotIndex)
     return true;
 }
 
+/** Load from a pre‐saved bag state. */
 void UBagComponent::LoadState(const FBagState& State)
 {
     UE_LOG(LogTemp, Warning, TEXT("LoadState: Loading state for bag %s with %d slots"), 
@@ -182,45 +183,33 @@ void UBagComponent::LoadState(const FBagState& State)
     RequestWeightUpdate();
 }
 
+/** Save current BagState to the character’s BagSaveData. */
 void UBagComponent::SaveState()
 {
-    // Skip save if suppressed or already saving
+    // Skip if suppressed or already saving
     if (bSuppressSave || bIsSaving || !BagState.BagKey.IsValid())
     {
-        UE_LOG(LogTemp, Verbose, TEXT("SaveState: Skipped save for %s (Suppressed=%d, IsSaving=%d)"), 
+        UE_LOG(LogTemp, Verbose, TEXT("SaveState: Skipped for %s (suppress=%d, isSaving=%d)"), 
             *BagState.BagKey.ToString(), bSuppressSave, bIsSaving);
         return;
     }
 
     bIsSaving = true;
 
-    // Cancel any pending save
+    // Cancel pending
     if (UWorld* World = GetWorld())
     {
         World->GetTimerManager().ClearTimer(SaveDebounceTimer);
     }
 
-    UE_LOG(LogTemp, Warning, TEXT("SaveState: Saving state for bag %s with %d slots"), 
+    UE_LOG(LogTemp, Warning, TEXT("SaveState: Saving %s with %d slots"), 
         *BagState.BagKey.ToString(), BagState.SlotStates.Num());
-
-    // Log all non-empty slots
-    for (int32 i = 0; i < BagState.SlotStates.Num(); ++i)
-    {
-        if (!BagState.SlotStates[i].IsEmpty())
-        {
-            UE_LOG(LogTemp, Warning, TEXT("  Slot %d: %s (x%d)"), 
-                i, 
-                *BagState.SlotStates[i].ItemInfo.ItemName.ToString(),
-                BagState.SlotStates[i].Quantity);
-        }
-    }
 
     if (ALotACharacter* Character = Cast<ALotACharacter>(GetOwner()))
     {
-        Character->SaveBagState(this);
+        Character->SaveBagState(this); // calls ALotACharacter::SaveBagState_Implementation on server
     }
 
-    // Set timer to allow next save
     if (UWorld* World = GetWorld())
     {
         World->GetTimerManager().SetTimer(SaveDebounceTimer, 
@@ -237,10 +226,7 @@ void UBagComponent::RequestWeightUpdate()
 {
     if (UWorld* World = GetWorld())
     {
-        // Clear any pending update
         World->GetTimerManager().ClearTimer(WeightUpdateTimer);
-        
-        // Schedule a new update
         World->GetTimerManager().SetTimer(WeightUpdateTimer,
             [this]() { UpdateWeight(); },
             0.1f, false);
@@ -249,7 +235,7 @@ void UBagComponent::RequestWeightUpdate()
 
 void UBagComponent::UpdateWeight()
 {
-    // If already updating, mark as pending and return
+    // If already updating, queue up again
     if (bIsUpdatingWeight)
     {
         bPendingWeightUpdate = true;
@@ -257,8 +243,8 @@ void UBagComponent::UpdateWeight()
     }
 
     bIsUpdatingWeight = true;
-    bSuppressSave = true;  // Prevent saves during weight calculation
-    
+    bSuppressSave = true;  // No SaveState calls while we recalc
+
     float NewWeight = BagState.BagInfo.Weight;
     for (const FBagSlotState& Slot : BagState.SlotStates)
     {
@@ -268,7 +254,7 @@ void UBagComponent::UpdateWeight()
         }
     }
 
-    // Only broadcast if weight actually changed
+    // Only broadcast if changed
     if (!FMath::IsNearlyEqual(LastCalculatedWeight, NewWeight))
     {
         LastCalculatedWeight = NewWeight;
@@ -278,7 +264,7 @@ void UBagComponent::UpdateWeight()
     bSuppressSave = false;
     bIsUpdatingWeight = false;
 
-    // If there's a pending update, handle it after a short delay
+    // If pending re-update
     if (bPendingWeightUpdate)
     {
         bPendingWeightUpdate = false;
@@ -297,8 +283,6 @@ void UBagComponent::NotifySlotUpdated(int32 SlotIndex)
     {
         const FBagSlotState& State = BagState.SlotStates[SlotIndex];
         OnSlotUpdated.Broadcast(SlotIndex, State.ItemInfo, State.Quantity);
-
-        // Request a weight update any time slot contents change
         RequestWeightUpdate();
     }
 }
@@ -313,4 +297,35 @@ void UBagComponent::OnRep_IsOpen()
     {
         OnBagClosed.Broadcast(this);
     }
+}
+
+/* ============================
+ *  NEW SERVER FUNCTIONS
+ * ============================
+*/
+
+/** Attempt to add item on the server, ensuring no nested bags. */
+void UBagComponent::ServerTryAddItem_Implementation(const FS_ItemInfo& Item, int32 Quantity, int32 TargetSlot)
+{
+    UE_LOG(LogTemp, Warning, TEXT("SERVER: ServerTryAddItem_Implementation => %s x%d, slot %d"), 
+        *Item.ItemName.ToString(), Quantity, TargetSlot);
+
+    // Bag-in-bag check
+    if (Item.ItemType == EItemType::Bag)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("SERVER: Rejected bag in bag!"));
+        return;
+    }
+
+    // For bag-in-itself check (optional)
+    // e.g. if (GenerateBagKey(Item) == BagState.BagKey)...
+
+    // Actually do the local add
+    TryAddItem(Item, Quantity, TargetSlot);
+}
+
+void UBagComponent::ServerTryRemoveItem_Implementation(int32 SlotIndex)
+{
+    UE_LOG(LogTemp, Warning, TEXT("SERVER: ServerTryRemoveItem_Implementation => slot %d"), SlotIndex);
+    TryRemoveItem(SlotIndex);
 }

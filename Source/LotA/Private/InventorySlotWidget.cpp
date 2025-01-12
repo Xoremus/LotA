@@ -314,84 +314,112 @@ void UInventorySlotWidget::NativeOnDragCancelled(const FDragDropEvent& InDragDro
     bIsInDragOperation = false;
 }
 
-bool UInventorySlotWidget::NativeOnDrop(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
+bool UInventorySlotWidget::NativeOnDrop(
+    const FGeometry& InGeometry,
+    const FDragDropEvent& InDragDropEvent,
+    UDragDropOperation* InOperation
+)
 {
     UInventoryDragDropOperation* DragDrop = Cast<UInventoryDragDropOperation>(InOperation);
     if (!DragDrop)
+    {
         return false;
+    }
 
     UE_LOG(LogTemp, Warning, TEXT("NativeOnDrop: Dropping %s (x%d) from slot %s"),
         *DragDrop->DraggedItem.ItemName.ToString(),
         DragDrop->OriginalQuantity,
         *DragDrop->SourceSlot->GetName());
 
-    // Dropping onto same slot - restore the item
+    // 1) Same slot => restore
     if (DragDrop->SourceSlot == this)
     {
         SetItemDetails(DragDrop->DraggedItem, DragDrop->OriginalQuantity);
         return true;
     }
 
-    // If dropping into a Bag slot
+    // 2) If dropping into a Bag slot
     if (UBagComponent* TargetBagComp = GetParentBagComponent())
     {
-        // Check for recursive bag placement
-        if (DragDrop->DraggedItem.ItemType == EItemType::Bag)
+        int32 TargetSlotIndex;
+        if (!TryGetParentBagSlotIndex(TargetSlotIndex))
         {
-            // Check if trying to put a bag inside itself
-            FName DraggedBagKey = *FString::Printf(TEXT("Bag_%s"), *DragDrop->DraggedItem.ItemID.ToString());
-            if (TargetBagComp->GetBagInfo().ItemID == DragDrop->DraggedItem.ItemID)
-            {
-                UE_LOG(LogTemp, Warning, TEXT("Prevented putting bag inside itself"));
-                DragDrop->SourceSlot->FindAndRestoreToAvailableSlot();
-                return false;
-            }
-
-            // Prevent ANY bags from being placed in bags
-            UE_LOG(LogTemp, Warning, TEXT("Prevented dropping bag into another bag"));
+            UE_LOG(LogTemp, Warning, TEXT("NativeOnDrop -> Invalid target bag slot index"));
             DragDrop->SourceSlot->FindAndRestoreToAvailableSlot();
             return false;
         }
 
-        int32 TargetSlotIndex;
-        if (TryGetParentBagSlotIndex(TargetSlotIndex))
+        // a) Try stacking if same item
+        if (ItemQuantity > 0 && CurrentItemInfo.ItemID == DragDrop->DraggedItem.ItemID)
         {
-            // If there's already an item in this slot and it's the same type, try stacking
-            if (ItemQuantity > 0 && CurrentItemInfo.ItemID == DragDrop->DraggedItem.ItemID)
+            int32 Space = CurrentItemInfo.MaxStackSize - ItemQuantity;
+            if (Space > 0)
             {
-                int32 Space = CurrentItemInfo.MaxStackSize - ItemQuantity;
-                if (Space > 0)
+                int32 AmountToAdd = FMath::Min(Space, DragDrop->OriginalQuantity);
+                int32 NewTotal    = ItemQuantity + AmountToAdd;
+
+                // SERVER => real add
+                TargetBagComp->ServerTryAddItem(DragDrop->DraggedItem, NewTotal, TargetSlotIndex);
+
+                // If not split, remove from source
+                if (!DragDrop->bSplitStack)
                 {
-                    int32 AmountToAdd = FMath::Min(Space, DragDrop->OriginalQuantity);
-                    if (TargetBagComp->TryAddItem(DragDrop->DraggedItem, ItemQuantity + AmountToAdd, TargetSlotIndex))
+                    if (UBagComponent* SourceBagComp = DragDrop->SourceSlot->GetParentBagComponent())
                     {
-                        if (!DragDrop->bSplitStack)
+                        int32 SourceIndex;
+                        if (DragDrop->SourceSlot->TryGetParentBagSlotIndex(SourceIndex))
                         {
-                            DragDrop->SourceSlot->ClearSlot();
+                            SourceBagComp->ServerTryRemoveItem(SourceIndex);
                         }
-                        return true;
+                    }
+                    else
+                    {
+                        DragDrop->SourceSlot->ClearSlot();
                     }
                 }
+
+                // Local UI update
+                ItemQuantity = NewTotal;
+                UpdateVisuals();
+
+                if (UMainInventoryWidget* MainInv = GetMainInventoryWidget())
+                {
+                    MainInv->RequestWeightUpdate();
+                }
+                return true;
             }
-            // Otherwise try to add as new item
-            else if (TargetBagComp->TryAddItem(DragDrop->DraggedItem, DragDrop->OriginalQuantity, TargetSlotIndex))
+        }
+        // b) Otherwise place as new item
+        else
+        {
+            TargetBagComp->ServerTryAddItem(DragDrop->DraggedItem, DragDrop->OriginalQuantity, TargetSlotIndex);
+
+            if (!DragDrop->bSplitStack)
             {
-                if (!DragDrop->bSplitStack)
+                if (UBagComponent* SourceBagComp = DragDrop->SourceSlot->GetParentBagComponent())
+                {
+                    int32 SourceIndex;
+                    if (DragDrop->SourceSlot->TryGetParentBagSlotIndex(SourceIndex))
+                    {
+                        SourceBagComp->ServerTryRemoveItem(SourceIndex);
+                    }
+                }
+                else
                 {
                     DragDrop->SourceSlot->ClearSlot();
                 }
-                SetItemDetails(DragDrop->DraggedItem, DragDrop->OriginalQuantity);
-                return true;
             }
 
-            // If we couldn't add the item, restore it
-            DragDrop->SourceSlot->FindAndRestoreToAvailableSlot();
-            return false;
+            SetItemDetails(DragDrop->DraggedItem, DragDrop->OriginalQuantity);
+            return true;
         }
+
+        // If we get here => revert
+        DragDrop->SourceSlot->FindAndRestoreToAvailableSlot();
+        return false;
     }
 
-    // Handle main inventory slots
-    // Attempt stacking if same item type
+    // 3) Main inventory => attempt stack
     if (ItemQuantity > 0 && CurrentItemInfo.ItemID == DragDrop->DraggedItem.ItemID)
     {
         int32 Space = CurrentItemInfo.MaxStackSize - ItemQuantity;
@@ -405,7 +433,7 @@ bool UInventorySlotWidget::NativeOnDrop(const FGeometry& InGeometry, const FDrag
             {
                 DragDrop->SourceSlot->ClearSlot();
             }
-            
+
             if (UMainInventoryWidget* MainInv = GetMainInventoryWidget())
             {
                 MainInv->RequestWeightUpdate();
@@ -414,9 +442,9 @@ bool UInventorySlotWidget::NativeOnDrop(const FGeometry& InGeometry, const FDrag
         }
     }
 
-    // If we can't stack, swap items
-    FS_ItemInfo OldItem = CurrentItemInfo;
-    int32 OldQuantity = ItemQuantity;
+    // 4) Otherwise => swap
+    FS_ItemInfo OldItem     = CurrentItemInfo;
+    int32       OldQuantity = ItemQuantity;
 
     SetItemDetails(DragDrop->DraggedItem, DragDrop->OriginalQuantity);
 
@@ -432,7 +460,6 @@ bool UInventorySlotWidget::NativeOnDrop(const FGeometry& InGeometry, const FDrag
         }
     }
 
-    // Request a weight update after the swap
     if (UMainInventoryWidget* MainInv = GetMainInventoryWidget())
     {
         MainInv->RequestWeightUpdate();

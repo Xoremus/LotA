@@ -1,4 +1,3 @@
-// BagComponent.h
 #pragma once
 
 #include "CoreMinimal.h"
@@ -22,7 +21,7 @@ public:
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
     virtual void BeginPlay() override;
 
-    // Basic Operations
+    // === Basic Operations ===
     UFUNCTION(BlueprintCallable, Category = "Bag")
     bool OpenBag();
     
@@ -35,7 +34,7 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Bag")
     void InitializeBag(const FS_ItemInfo& BagItemInfo);
 
-    // Item Management
+    // === Item Management (Local) ===
     UFUNCTION(BlueprintCallable, Category = "Bag")
     bool CanAcceptItem(const FS_ItemInfo& Item, int32 TargetSlot) const;
 
@@ -45,14 +44,21 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Bag")
     bool TryRemoveItem(int32 SlotIndex);
 
-    // State Management
+    // === State Management ===
     void LoadState(const FBagState& State);
     void SaveState();
     void RequestWeightUpdate();
     void SetSuppressSave(bool bSuppress) { bSuppressSave = bSuppress; }
     float GetLastCalculatedWeight() const { return LastCalculatedWeight; }
 
-    // Getters
+    // === Server RPCs (New) ===
+    UFUNCTION(Server, Reliable)
+    void ServerTryAddItem(const FS_ItemInfo& Item, int32 Quantity, int32 TargetSlot);
+
+    UFUNCTION(Server, Reliable)
+    void ServerTryRemoveItem(int32 SlotIndex);
+
+    // === Getters ===
     UFUNCTION(BlueprintPure, Category = "Bag")
     const FS_ItemInfo& GetBagInfo() const { return BagState.BagInfo; }
 
@@ -93,13 +99,13 @@ protected:
     void OnRep_IsOpen();
 
 private:
-    bool bPendingRemoval;
-    bool bIsSaving;
-    bool bIsClosing;
-    bool bIsUpdatingWeight;
-    bool bSuppressSave;
-    bool bPendingWeightUpdate;
-    float LastCalculatedWeight;
+    bool bPendingRemoval = false;
+    bool bIsSaving = false;
+    bool bIsClosing = false;
+    bool bIsUpdatingWeight = false;
+    bool bSuppressSave = false;
+    bool bPendingWeightUpdate = false;
+    float LastCalculatedWeight = 0.0f;
     FTimerHandle SaveDebounceTimer;
     FTimerHandle WeightUpdateTimer;
 };
