@@ -5,23 +5,27 @@
 #include "Components/StaticMeshComponent.h"
 #include "Components/SphereComponent.h"
 #include "S_ItemInfo.h"
-
-// .generated.h must be last include
+#include "IInteractable.h"
 #include "ItemBase.generated.h"
 
-/**
- * AItemBase
- * Represents an in-world pickup actor that can be collected by pressing E (line trace)
- * or optionally by overlap if you un-comment the overlap logic.
- */
 UCLASS()
-class LOTA_API AItemBase : public AActor
+class LOTA_API AItemBase : public AActor, public IInteractable
 {
     GENERATED_BODY()
 
-public:
-    // Sets default values for this actor's properties
+public:    
     AItemBase();
+
+    virtual void Tick(float DeltaTime) override;
+
+protected:
+    virtual void BeginPlay() override;
+
+public:
+    // IInteractable Interface Implementation
+    virtual void OnInteract_Implementation(AActor* Interactor) override;
+    virtual bool CanInteract_Implementation(AActor* Interactor) const override;
+    virtual FText GetInteractionText_Implementation(AActor* Interactor) const override;
 
     /** Item information (ID, weight, type, etc.) */
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Item")
@@ -31,50 +35,15 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Item")
     int32 StackCount;
 
-protected:
-    virtual void BeginPlay() override;
-
-public:
-    virtual void Tick(float DeltaTime) override;
-
-    /**
-     * Mesh to visually represent this pickup in the world.
-     * If you only do line-traces, you can keep this as the root.
-     */
+    /** Mesh to visually represent this pickup in the world */
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Item|Mesh")
     UStaticMeshComponent* ItemMesh;
 
-    /**
-     * Optional collision for overlap-based pickup.
-     * If you rely purely on line traces + pressing E, you can leave or remove it.
-     */
+    /** Optional collision for overlap-based pickup */
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Item|Collision")
     USphereComponent* PickupCollision;
 
-    /**
-     * Returns the effective weight (including bag reduction if this item is a bag).
-     */
-    UFUNCTION(BlueprintCallable, Category="Item")
-    float GetEffectiveWeight() const;
-
-    /**
-     * Called when the item is successfully picked up (on the server).
-     * By default, we just Destroy() the actor.
-     */
+    /** Called when the item is successfully picked up (on the server) */
     UFUNCTION(BlueprintCallable, Category="Item")
     virtual void OnPickedUp();
-
-    /**
-     * If you want auto pickup by overlap, we declare it so no compile error occurs
-     * if you call AddDynamic(...) in BeginPlay.
-     */
-    UFUNCTION()
-    virtual void OnPickupOverlap(
-        UPrimitiveComponent* OverlappedComp,
-        AActor* OtherActor,
-        UPrimitiveComponent* OtherComp,
-        int32 OtherBodyIndex,
-        bool bFromSweep,
-        const FHitResult& SweepResult
-    );
 };

@@ -10,58 +10,89 @@
 #include "ItemBase.h"
 #include "BagComponent.h"
 #include "CharacterStatsComponent.h"
+#include "InteractionComponent.h"
 
 //////////////////////////////////////////////////////////////////////////
 // Constructor
-
 ALotACharacter::ALotACharacter()
 {
-    // Capsule
+    // Set size for collision capsule
     GetCapsuleComponent()->InitCapsuleSize(42.f, 96.f);
 
+    // Movement settings
     BaseWalkSpeed = 600.f;
     GetCharacterMovement()->MaxWalkSpeed = BaseWalkSpeed;
 
-    // We do NOT automatically rotate with camera yaw
-    bUseControllerRotationYaw = false;
+    // Configure character rotation
+    bUseControllerRotationYaw = false;    // Don't rotate with controller
     bUseControllerRotationPitch = false;
-    bUseControllerRotationRoll  = false;
+    bUseControllerRotationRoll = false;
 
-    // We do NOT orient to movement
-    GetCharacterMovement()->bOrientRotationToMovement = false;
+    // Configure character movement
+    GetCharacterMovement()->bOrientRotationToMovement = true;     // Rotate character to movement direction
+    GetCharacterMovement()->RotationRate = FRotator(0.0f, 500.0f, 0.0f); // Smooth rotation speed
+    GetCharacterMovement()->bConstrainToPlane = true;
+    GetCharacterMovement()->bSnapToPlaneAtStart = true;
 
-    // Camera boom
+    // Create camera boom
     CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
     CameraBoom->SetupAttachment(RootComponent);
-    CameraBoom->TargetArmLength = 300.f;
-    CameraBoom->bUsePawnControlRotation = true; // let the camera orbit
+    CameraBoom->TargetArmLength = 400.0f;          // Further back for better view
+    CameraBoom->bUsePawnControlRotation = true;    // Rotate arm based on controller
+    CameraBoom->bDoCollisionTest = true;           // Camera boom collision
+    CameraBoom->ProbeSize = 12.0f;
+    CameraBoom->bEnableCameraLag = true;          // Smooth camera movement
+    CameraBoom->CameraLagSpeed = 15.0f;
+    CameraBoom->bEnableCameraRotationLag = false; // Disable rotation lag for responsive camera
+    CameraBoom->bInheritPitch = true;             // Allow pitch inheritance
+    CameraBoom->bInheritYaw = true;               // Allow yaw inheritance
+    CameraBoom->bInheritRoll = false;             // No roll needed for MMO-style
 
-    // Follow camera
+    // Create follow camera
     FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
     FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
-    FollowCamera->bUsePawnControlRotation = false;
+    FollowCamera->bUsePawnControlRotation = false; // Camera doesn't rotate relative to arm
 
-    // Stats (optional)
-    // StatsComponent = CreateDefaultSubobject<UCharacterStatsComponent>(TEXT("StatsComponent"));
+    // Stats component
+    StatsComponent = CreateDefaultSubobject<UCharacterStatsComponent>(TEXT("StatsComponent"));
 
-    bRightMouseDown = false; // start false
+    InteractionComponent = CreateDefaultSubobject<UInteractionComponent>(TEXT("InteractionComponent"));
+
+    // Default camera pitch limits
+    CameraPitchMin = -80.0f;
+    CameraPitchMax = 0.0f;
+
+    // Initialize movement state
+    bIsAutoRunning = false;
+    bIsRightMouseDown = false;
+    bInvertMouseY = false;  // Initialize mouse inversion setting
 }
 
 void ALotACharacter::BeginPlay()
 {
     Super::BeginPlay();
 
-    // Add default mapping
-    if (APlayerController* PC = Cast<APlayerController>(Controller))
+    // Add Input Mapping Context
+    if (APlayerController* PlayerController = Cast<APlayerController>(Controller))
     {
-        if (UEnhancedInputLocalPlayerSubsystem* Subsystem =
-            ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PC->GetLocalPlayer()))
+        if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))
         {
             Subsystem->AddMappingContext(DefaultMappingContext, 0);
         }
     }
 
+    // Restore saved bag states
     RestoreAllBagStates();
+}
+
+void ALotACharacter::Tick(float DeltaTime)
+{
+    Super::Tick(DeltaTime);
+
+    if (bIsAutoRunning)
+    {
+        AddMovementInput(AutoRunDirection);
+    }
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -69,36 +100,29 @@ void ALotACharacter::BeginPlay()
 
 void ALotACharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
-    Super::SetupPlayerInputComponent(PlayerInputComponent);
-
-    if (UEnhancedInputComponent* EIC = Cast<UEnhancedInputComponent>(PlayerInputComponent))
+    if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerInputComponent))
     {
         // Movement
-        if (MoveAction)
+        EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ALotACharacter::Move);
+
+        // Looking
+        EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &ALotACharacter::Look);
+
+        // Jumping
+        EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Started, this, &ACharacter::Jump);
+        EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Completed, this, &ACharacter::StopJumping);
+
+        // Interaction
+        EnhancedInputComponent->BindAction(IA_Interact, ETriggerEvent::Started, this, &ALotACharacter::OnInteract);
+
+        // Camera control
+        EnhancedInputComponent->BindAction(IA_RightMouse, ETriggerEvent::Started, this, &ALotACharacter::OnRightMousePressed);
+        EnhancedInputComponent->BindAction(IA_RightMouse, ETriggerEvent::Completed, this, &ALotACharacter::OnRightMouseReleased);
+
+        // Auto-run
+        if (IA_AutoRun)
         {
-            EIC->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ALotACharacter::Move);
-        }
-        // Look
-        if (LookAction)
-        {
-            EIC->BindAction(LookAction, ETriggerEvent::Triggered, this, &ALotACharacter::Look);
-        }
-        // Jump
-        if (JumpAction)
-        {
-            EIC->BindAction(JumpAction, ETriggerEvent::Started, this, &ACharacter::Jump);
-            EIC->BindAction(JumpAction, ETriggerEvent::Completed, this, &ACharacter::StopJumping);
-        }
-        // Interact => E
-        if (IA_Interact)
-        {
-            EIC->BindAction(IA_Interact, ETriggerEvent::Started, this, &ALotACharacter::OnInteract);
-        }
-        // Right Mouse press/release
-        if (IA_RightMouse)
-        {
-            EIC->BindAction(IA_RightMouse, ETriggerEvent::Started, this, &ALotACharacter::OnRightMousePressed);
-            EIC->BindAction(IA_RightMouse, ETriggerEvent::Completed, this, &ALotACharacter::OnRightMouseReleased);
+            EnhancedInputComponent->BindAction(IA_AutoRun, ETriggerEvent::Started, this, &ALotACharacter::ToggleAutoRun);
         }
     }
 }
@@ -109,66 +133,94 @@ void ALotACharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
     DOREPLIFETIME(ALotACharacter, BagSaveData);
 }
 
-//////////////////////////////////////////////////////////////////////////
-// Movement / Look
-
 void ALotACharacter::Move(const FInputActionValue& Value)
 {
-    FVector2D Axis = Value.Get<FVector2D>();
-    if (Controller)
+    if (Controller == nullptr)
+        return;
+
+    const FVector2D MovementVector = Value.Get<FVector2D>();
+    
+    // Get camera forward direction (ignoring pitch)
+    const FRotator Rotation = Controller->GetControlRotation();
+    const FRotator YawRotation(0, Rotation.Yaw, 0);
+    
+    // Get forward and right vectors
+    const FVector ForwardDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
+    const FVector RightDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
+
+    // Add movement inputs
+    AddMovementInput(ForwardDirection, MovementVector.Y);
+    AddMovementInput(RightDirection, MovementVector.X);
+
+    // Cancel auto-run if moving manually
+    if (bIsAutoRunning && !FMath::IsNearlyZero(MovementVector.Size()))
     {
-        FRotator Rot = Controller->GetControlRotation();
-        FRotator Yaw(0, Rot.Yaw, 0);
-
-        FVector Forward = FRotationMatrix(Yaw).GetUnitAxis(EAxis::X);
-        FVector Right   = FRotationMatrix(Yaw).GetUnitAxis(EAxis::Y);
-
-        AddMovementInput(Forward, Axis.Y);
-        AddMovementInput(Right,   Axis.X);
+        bIsAutoRunning = false;
     }
 }
 
 void ALotACharacter::Look(const FInputActionValue& Value)
 {
-    // Only rotate character if right mouse is down
-    if (!bRightMouseDown)
-    {
+    if (!bIsRightMouseDown)
         return;
+
+    const FVector2D LookAxisVector = Value.Get<FVector2D>();
+    
+    // Add yaw input (horizontal mouse movement)
+    AddControllerYawInput(LookAxisVector.X);
+    
+    // Add pitch input (vertical mouse movement)
+    // Apply inversion based on setting
+    float PitchValue = bInvertMouseY ? -LookAxisVector.Y : LookAxisVector.Y;
+    AddControllerPitchInput(PitchValue);
+}
+
+void ALotACharacter::OnRightMousePressed()
+{
+    bIsRightMouseDown = true;
+    
+    if (APlayerController* PC = Cast<APlayerController>(Controller))
+    {
+        PC->SetShowMouseCursor(false);
     }
-
-    FVector2D Axis = Value.Get<FVector2D>();
-    AddControllerYawInput(Axis.X);
-    AddControllerPitchInput(Axis.Y);
 }
 
-// Right Mouse => we turn the character with mouse
-void ALotACharacter::OnRightMousePressed(const FInputActionValue& /*Value*/)
+void ALotACharacter::OnRightMouseReleased()
 {
-    bRightMouseDown = true;
-    // Enable direct rotation
-    bUseControllerRotationYaw = true;
+    bIsRightMouseDown = false;
+    
+    if (APlayerController* PC = Cast<APlayerController>(Controller))
+    {
+        PC->SetShowMouseCursor(true);
+    }
 }
 
-// Release => revert
-void ALotACharacter::OnRightMouseReleased(const FInputActionValue& /*Value*/)
+void ALotACharacter::ToggleAutoRun()
 {
-    bRightMouseDown = false;
-    bUseControllerRotationYaw = false;
+    bIsAutoRunning = !bIsAutoRunning;
+    
+    if (bIsAutoRunning)
+    {
+        // Get forward direction from camera
+        const FRotator Rotation = Controller->GetControlRotation();
+        const FRotator YawRotation(0, Rotation.Yaw, 0);
+        AutoRunDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
+    }
 }
 
 //////////////////////////////////////////////////////////////////////////
-// Interact => Press E => line trace => pick up item
+// Interaction & Pickup Logic
 
 void ALotACharacter::OnInteract()
 {
     const float TraceDist = 200.f;
     FVector Start = FollowCamera->GetComponentLocation();
-    FVector End   = Start + (FollowCamera->GetComponentRotation().Vector() * TraceDist);
-
+    FVector End = Start + (FollowCamera->GetComponentRotation().Vector() * TraceDist);
+    
     FHitResult Hit;
     FCollisionQueryParams Params;
     Params.AddIgnoredActor(this);
-
+    
     bool bHit = GetWorld()->LineTraceSingleByChannel(Hit, Start, End, ECC_Visibility, Params);
     if (bHit && Hit.GetActor())
     {
@@ -187,9 +239,9 @@ void ALotACharacter::ServerPickupItem_Implementation(AItemBase* ItemActor)
     }
 
     FS_ItemInfo Info = ItemActor->ItemDetails;
-    int32 Qty        = ItemActor->StackCount;
+    int32 Qty = ItemActor->StackCount;
 
-    // Example main bag key:
+    // Try to add to main inventory first
     UBagComponent* MainBag = FindBagComponent(TEXT("Bag_MainInventory"));
     if (!MainBag)
     {
@@ -205,35 +257,11 @@ void ALotACharacter::ServerPickupItem_Implementation(AItemBase* ItemActor)
     }
 
     MainBag->TryAddItem(Info, Qty, SlotIndex);
-    ItemActor->OnPickedUp(); // remove from world
-}
-
-int32 ALotACharacter::FindOrCreateSlotIndex(UBagComponent* Bag, const FS_ItemInfo& Item, int32 Quantity)
-{
-    const TArray<FBagSlotState>& Slots = Bag->GetSlotStates();
-    int32 FirstEmpty = INDEX_NONE;
-
-    for (int32 i = 0; i < Slots.Num(); i++)
-    {
-        const FBagSlotState& S = Slots[i];
-        if (!S.IsEmpty() && S.ItemInfo.ItemID == Item.ItemID)
-        {
-            int32 Space = Item.MaxStackSize - S.Quantity;
-            if (Space > 0)
-            {
-                return i; // partial stack
-            }
-        }
-        else if (S.IsEmpty() && FirstEmpty == INDEX_NONE)
-        {
-            FirstEmpty = i;
-        }
-    }
-    return FirstEmpty;
+    ItemActor->OnPickedUp();
 }
 
 //////////////////////////////////////////////////////////////////////////
-// Bag Logic
+// Bag System Implementation
 
 UBagComponent* ALotACharacter::AddBagComponent(const FS_ItemInfo& BagInfo)
 {
@@ -262,20 +290,20 @@ UBagComponent* ALotACharacter::AddBagComponent(const FS_ItemInfo& BagInfo)
     {
         NewBag->RegisterComponent();
         NewBag->InitializeBag(BagInfo);
-
+        
         FBagSavedState S;
         if (GetSavedBagState(BagKey, S))
         {
             FBagState Rebuild;
-            Rebuild.BagKey    = BagKey;
-            Rebuild.BagInfo   = S.BagInfo;
-            Rebuild.SlotStates= S.SlotStates;
+            Rebuild.BagKey = BagKey;
+            Rebuild.BagInfo = S.BagInfo;
+            Rebuild.SlotStates = S.SlotStates;
             NewBag->LoadState(Rebuild);
         }
 
-        // bind weight changed
         NewBag->OnWeightChanged.AddDynamic(this, &ALotACharacter::OnBagWeightChanged);
         ActiveBagComponents.Add(BagKey, NewBag);
+        
         UE_LOG(LogTemp, Warning, TEXT("AddBagComponent: Created => %s"), *BagKey.ToString());
     }
     return NewBag;
@@ -302,13 +330,14 @@ void ALotACharacter::SaveBagState_Implementation(UBagComponent* BagComp)
 
     FName BagKey = GenerateBagKey(BagComp->GetBagInfo());
     FBagState NewState;
-    NewState.BagKey     = BagKey;
-    NewState.BagInfo    = BagComp->GetBagInfo();
+    NewState.BagKey = BagKey;
+    NewState.BagInfo = BagComp->GetBagInfo();
     NewState.SlotStates = BagComp->GetSlotStates();
 
     int32 Existing = BagSaveData.SavedBags.IndexOfByPredicate([BagKey](const FBagState& St){
         return St.BagKey == BagKey;
     });
+
     if (Existing != INDEX_NONE)
     {
         BagSaveData.SavedBags[Existing] = NewState;
@@ -329,11 +358,12 @@ bool ALotACharacter::GetSavedBagState(const FName& BagKey, FBagSavedState& OutSt
     int32 FoundIndex = BagSaveData.SavedBags.IndexOfByPredicate([BagKey](const FBagState& St){
         return St.BagKey == BagKey;
     });
+
     if (FoundIndex != INDEX_NONE)
     {
         const FBagState& S = BagSaveData.SavedBags[FoundIndex];
-        OutState.BagInfo   = S.BagInfo;
-        OutState.SlotStates= S.SlotStates;
+        OutState.BagInfo = S.BagInfo;
+        OutState.SlotStates = S.SlotStates;
         return true;
     }
     return false;
@@ -347,19 +377,21 @@ float ALotACharacter::GetTotalBagsWeight() const
 void ALotACharacter::RestoreAllBagStates()
 {
     UE_LOG(LogTemp, Warning, TEXT("RestoreAllBagStates called"));
-
+    
     TArray<FName> TopBags = BagSaveData.GetBagsAtDepth(0);
     for (const FName& BagK : TopBags)
     {
         int32 FoundIndex = BagSaveData.SavedBags.IndexOfByPredicate([BagK](const FBagState& BS){
             return BS.BagKey == BagK;
         });
+        
         if (FoundIndex != INDEX_NONE)
         {
             const FBagState& ST = BagSaveData.SavedBags[FoundIndex];
             AddBagComponent(ST.BagInfo);
         }
     }
+    
     UpdateBagWeights();
 }
 
@@ -367,16 +399,19 @@ void ALotACharacter::OnTotalWeightChanged(float NewTotalWeight)
 {
     float Ratio = (NewTotalWeight / MaxCarryWeight);
     float SpeedMult = 1.f;
+    
     if (Ratio > 1.f)
     {
         SpeedMult = FMath::Max(0.2f, 1.f - ((Ratio - 1.f) * 0.5f));
     }
+    
     GetCharacterMovement()->MaxWalkSpeed = BaseWalkSpeed * SpeedMult;
 }
 
 void ALotACharacter::RemoveBagComponent(UBagComponent* BagComp)
 {
     if (!BagComp) return;
+
     FName BagKey = GenerateBagKey(BagComp->GetBagInfo());
     if (UBagComponent** Found = ActiveBagComponents.Find(BagKey))
     {
@@ -388,14 +423,13 @@ void ALotACharacter::RemoveBagComponent(UBagComponent* BagComp)
     }
 }
 
-void ALotACharacter::OnBagWeightChanged(float /*NewWeight*/)
+void ALotACharacter::OnBagWeightChanged(float NewWeight)
 {
     UpdateBagWeights();
 }
 
 void ALotACharacter::UpdateBagWeights()
 {
-    // Recalc weight
     for (auto& Pair : ActiveBagComponents)
     {
         if (UBagComponent* Bag = Pair.Value)
@@ -403,8 +437,34 @@ void ALotACharacter::UpdateBagWeights()
             Bag->UpdateWeight();
         }
     }
-    float TW = GetTotalBagsWeight();
-    OnTotalWeightChanged(TW);
+    
+    float TotalWeight = GetTotalBagsWeight();
+    OnTotalWeightChanged(TotalWeight);
+}
+
+int32 ALotACharacter::FindOrCreateSlotIndex(UBagComponent* Bag, const FS_ItemInfo& Item, int32 Quantity)
+{
+    const TArray<FBagSlotState>& Slots = Bag->GetSlotStates();
+    int32 FirstEmpty = INDEX_NONE;
+
+    for (int32 i = 0; i < Slots.Num(); i++)
+    {
+        const FBagSlotState& S = Slots[i];
+        if (!S.IsEmpty() && S.ItemInfo.ItemID == Item.ItemID)
+        {
+            int32 Space = Item.MaxStackSize - S.Quantity;
+            if (Space > 0)
+            {
+                return i; // Found a partial stack that can accept more
+            }
+        }
+        else if (S.IsEmpty() && FirstEmpty == INDEX_NONE)
+        {
+            FirstEmpty = i;
+        }
+    }
+    
+    return FirstEmpty;
 }
 
 FName ALotACharacter::GenerateBagKey(const FS_ItemInfo& BagInfo) const

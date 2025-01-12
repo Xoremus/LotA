@@ -9,7 +9,7 @@
 #include "ItemBase.h"
 #include "LotACharacter.generated.h"
 
-// Forward declarations for your input assets, etc.
+class UInteractionComponent;
 class UInputMappingContext;
 class UInputAction;
 class USpringArmComponent;
@@ -21,11 +21,12 @@ class UBagComponent;
  * ALotACharacter
  * 
  * Features:
- * - Move with WASD (no auto-rotation)
- * - Camera orbits around character by default
- * - Hold Right Mouse => character rotates with mouse movement
- * - Press E => line trace to pick up items
- * - Full bag system (AddBagComponent, SaveBagState, etc.)
+ * - MMO-style WASD movement relative to camera
+ * - Right Mouse Button camera control
+ * - Auto-rotation to movement direction
+ * - Optional auto-run with Left Mouse Button
+ * - Full bag/inventory system
+ * - Press E to pickup items
  */
 UCLASS(config=Game)
 class LOTA_API ALotACharacter : public ACharacter
@@ -33,10 +34,9 @@ class LOTA_API ALotACharacter : public ACharacter
     GENERATED_BODY()
 
 public:
-    // -----------------------------
-    //  Constructor
-    // -----------------------------
     ALotACharacter();
+
+    virtual void Tick(float DeltaTime) override;
 
     // -----------------------------
     //  Input Actions
@@ -57,9 +57,13 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Input")
     UInputAction* IA_Interact;
 
-    /** Right Mouse to rotate the character with mouse */
+    /** Right Mouse to control camera */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Input")
     UInputAction* IA_RightMouse;
+
+    /** Left Mouse for auto-run */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Input")
+    UInputAction* IA_AutoRun;
 
     // -----------------------------
     //  Camera
@@ -70,11 +74,20 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category=Camera)
     UCameraComponent* FollowCamera;
 
+    UPROPERTY(EditAnywhere, Category="Camera")
+    float CameraPitchMin;
+
+    UPROPERTY(EditAnywhere, Category="Camera")
+    float CameraPitchMax;
+
     // -----------------------------
-    //  Character Stats (optional)
+    //  Character Stats
     // -----------------------------
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Stats")
     UCharacterStatsComponent* StatsComponent;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Interaction")
+    UInteractionComponent* InteractionComponent;
 
     // Movement
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Movement")
@@ -83,7 +96,7 @@ public:
     // -----------------------------
     //  Bag System
     // -----------------------------
-    /** Holds all bag states, replicated so the server is authoritative */
+    /** Holds all bag states, replicated so server is authoritative */
     UPROPERTY(Replicated)
     FBagSaveData BagSaveData;
 
@@ -91,6 +104,7 @@ public:
     UPROPERTY()
     TMap<FName, UBagComponent*> ActiveBagComponents;
 
+    void HandleBagPickup(AItemBase* BagActor);
     // Bag functions
     UFUNCTION(BlueprintCallable, Category="Inventory")
     UBagComponent* AddBagComponent(const FS_ItemInfo& BagInfo);
@@ -135,18 +149,19 @@ protected:
     // Movement & Look
     void Move(const FInputActionValue& Value);
     void Look(const FInputActionValue& Value);
+    void ToggleAutoRun();
 
     /** Press E => line trace to pick up item */
     UFUNCTION()
     void OnInteract();
 
-    /** Right Mouse pressed => let character rotate with mouse */
+    /** Right Mouse pressed => activate camera control */
     UFUNCTION()
-    void OnRightMousePressed(const FInputActionValue& Value);
+    void OnRightMousePressed();
 
-    /** Right Mouse released => revert to orbit mode */
+    /** Right Mouse released => deactivate camera control */
     UFUNCTION()
-    void OnRightMouseReleased(const FInputActionValue& Value);
+    void OnRightMouseReleased();
 
     // Bag / weight
     void UpdateBagWeights();
@@ -161,9 +176,29 @@ protected:
     int32 FindOrCreateSlotIndex(UBagComponent* Bag, const FS_ItemInfo& Item, int32 Quantity);
 
 private:
-    /** True if right mouse is down => we rotate the character with the mouse */
-    bool bRightMouseDown;
+    /** Movement state */
+    bool bIsRightMouseDown;
+    bool bIsAutoRunning;
+    FVector AutoRunDirection;
+
+    /** When true, moving mouse up will look down */
+    UPROPERTY(Config, EditAnywhere, Category="Camera|Controls")
+    bool bInvertMouseY;
 
     UPROPERTY(EditAnywhere, Category="Inventory")
     float MaxCarryWeight = 100.0f;
+
+    struct FBagSlotInfo
+    {
+        UBagComponent* Bag;
+        int32 SlotIndex;
+        bool bIsPartialStack;
+        int32 AvailableSpace;
+
+        FBagSlotInfo() : Bag(nullptr), SlotIndex(INDEX_NONE), bIsPartialStack(false), AvailableSpace(0) {}
+    };
+    
+    bool FindAvailableSlotForItem(const FS_ItemInfo& Item, int32 Quantity, FBagSlotInfo& OutSlotInfo);
+
+    bool AddItemToSlot(const FBagSlotInfo& SlotInfo, const FS_ItemInfo& Item, int32 Quantity);
 };

@@ -1,35 +1,22 @@
 ﻿#include "ItemBase.h"
-#include "Components/StaticMeshComponent.h"
-#include "Components/SphereComponent.h"
+#include "LotA/LotACharacter.h"
 
 AItemBase::AItemBase()
 {
     PrimaryActorTick.bCanEverTick = true;
-    StackCount = 1; // default stack of 1
+    StackCount = 1;
 
-    // Create mesh
     ItemMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("ItemMesh"));
     SetRootComponent(ItemMesh);
 
-    // Create optional collision if you want overlap-based pickup
     PickupCollision = CreateDefaultSubobject<USphereComponent>(TEXT("PickupCollision"));
     PickupCollision->SetupAttachment(ItemMesh);
-    PickupCollision->InitSphereRadius(50.f);
-    PickupCollision->SetGenerateOverlapEvents(true);
-    PickupCollision->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
-    PickupCollision->SetCollisionObjectType(ECC_WorldDynamic);
-    PickupCollision->SetCollisionResponseToAllChannels(ECR_Overlap);
+    PickupCollision->SetSphereRadius(50.f);
 }
 
 void AItemBase::BeginPlay()
 {
     Super::BeginPlay();
-
-    // If you want overlap-based pickup, bind it here:
-    if (PickupCollision)
-    {
-        PickupCollision->OnComponentBeginOverlap.AddDynamic(this, &AItemBase::OnPickupOverlap);
-    }
 }
 
 void AItemBase::Tick(float DeltaTime)
@@ -37,38 +24,25 @@ void AItemBase::Tick(float DeltaTime)
     Super::Tick(DeltaTime);
 }
 
-float AItemBase::GetEffectiveWeight() const
+void AItemBase::OnInteract_Implementation(AActor* Interactor)
 {
-    // If it's a bag with a WeightReductionPercentage, apply that
-    if (ItemDetails.ItemType == EItemType::Bag && ItemDetails.WeightReductionPercentage > 0.0f)
+    if (ALotACharacter* Character = Cast<ALotACharacter>(Interactor))
     {
-        return ItemDetails.Weight * (1.0f - (ItemDetails.WeightReductionPercentage / 100.0f));
+        Character->ServerPickupItem(this);
     }
-    return ItemDetails.Weight;
+}
+
+bool AItemBase::CanInteract_Implementation(AActor* Interactor) const
+{
+    return IsValid(Interactor);
+}
+
+FText AItemBase::GetInteractionText_Implementation(AActor* Interactor) const
+{
+    return FText::Format(NSLOCTEXT("ItemBase", "InteractPrompt", "Press E to pick up {0}"), ItemDetails.ItemName);
 }
 
 void AItemBase::OnPickedUp()
 {
-    // Called on the server after adding item to bag. 
-    // Optionally play a sound/particle effect, then destroy:
     Destroy();
-}
-
-void AItemBase::OnPickupOverlap(
-    UPrimitiveComponent* OverlappedComp,
-    AActor* OtherActor,
-    UPrimitiveComponent* OtherComp,
-    int32 OtherBodyIndex,
-    bool bFromSweep,
-    const FHitResult& SweepResult
-)
-{
-    // Example overlap logic if you want auto pickup:
-    /*
-    if (ALotACharacter* Character = Cast<ALotACharacter>(OtherActor))
-    {
-        // Call the server function to pick up
-        Character->ServerPickupItem(this);
-    }
-    */
 }
