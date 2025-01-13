@@ -1,4 +1,4 @@
-#include "LotACharacter.h"
+#include "LotA/LotACharacter.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -12,8 +12,6 @@
 #include "CharacterStatsComponent.h"
 #include "InteractionComponent.h"
 
-//////////////////////////////////////////////////////////////////////////
-// Constructor
 ALotACharacter::ALotACharacter()
 {
     // Set size for collision capsule
@@ -53,9 +51,8 @@ ALotACharacter::ALotACharacter()
     FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
     FollowCamera->bUsePawnControlRotation = false; // Camera doesn't rotate relative to arm
 
-    // Stats component
+    // Create components
     StatsComponent = CreateDefaultSubobject<UCharacterStatsComponent>(TEXT("StatsComponent"));
-
     InteractionComponent = CreateDefaultSubobject<UInteractionComponent>(TEXT("InteractionComponent"));
 
     // Default camera pitch limits
@@ -65,7 +62,6 @@ ALotACharacter::ALotACharacter()
     // Initialize movement state
     bIsAutoRunning = false;
     bIsRightMouseDown = false;
-    bInvertMouseY = false;  // Initialize mouse inversion setting
 }
 
 void ALotACharacter::BeginPlay()
@@ -95,9 +91,6 @@ void ALotACharacter::Tick(float DeltaTime)
     }
 }
 
-//////////////////////////////////////////////////////////////////////////
-// Input
-
 void ALotACharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
     if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerInputComponent))
@@ -112,17 +105,19 @@ void ALotACharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
         EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Started, this, &ACharacter::Jump);
         EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Completed, this, &ACharacter::StopJumping);
 
-        // Interaction
-        EnhancedInputComponent->BindAction(IA_Interact, ETriggerEvent::Started, this, &ALotACharacter::OnInteract);
+        // Interaction - bind to InteractionComponent
+        if (IA_Interact)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("Binding Interact action"));
+            EnhancedInputComponent->BindAction(IA_Interact, ETriggerEvent::Started, 
+                InteractionComponent, &UInteractionComponent::TryInteract);
+        }
 
         // Camera control
-        EnhancedInputComponent->BindAction(IA_RightMouse, ETriggerEvent::Started, this, &ALotACharacter::OnRightMousePressed);
-        EnhancedInputComponent->BindAction(IA_RightMouse, ETriggerEvent::Completed, this, &ALotACharacter::OnRightMouseReleased);
-
-        // Auto-run
-        if (IA_AutoRun)
+        if (IA_RightMouse)
         {
-            EnhancedInputComponent->BindAction(IA_AutoRun, ETriggerEvent::Started, this, &ALotACharacter::ToggleAutoRun);
+            EnhancedInputComponent->BindAction(IA_RightMouse, ETriggerEvent::Started, this, &ALotACharacter::OnRightMousePressed);
+            EnhancedInputComponent->BindAction(IA_RightMouse, ETriggerEvent::Completed, this, &ALotACharacter::OnRightMouseReleased);
         }
     }
 }
@@ -166,13 +161,8 @@ void ALotACharacter::Look(const FInputActionValue& Value)
 
     const FVector2D LookAxisVector = Value.Get<FVector2D>();
     
-    // Add yaw input (horizontal mouse movement)
     AddControllerYawInput(LookAxisVector.X);
-    
-    // Add pitch input (vertical mouse movement)
-    // Apply inversion based on setting
-    float PitchValue = bInvertMouseY ? -LookAxisVector.Y : LookAxisVector.Y;
-    AddControllerPitchInput(PitchValue);
+    AddControllerPitchInput(LookAxisVector.Y);
 }
 
 void ALotACharacter::OnRightMousePressed()
@@ -194,74 +184,6 @@ void ALotACharacter::OnRightMouseReleased()
         PC->SetShowMouseCursor(true);
     }
 }
-
-void ALotACharacter::ToggleAutoRun()
-{
-    bIsAutoRunning = !bIsAutoRunning;
-    
-    if (bIsAutoRunning)
-    {
-        // Get forward direction from camera
-        const FRotator Rotation = Controller->GetControlRotation();
-        const FRotator YawRotation(0, Rotation.Yaw, 0);
-        AutoRunDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
-    }
-}
-
-//////////////////////////////////////////////////////////////////////////
-// Interaction & Pickup Logic
-
-void ALotACharacter::OnInteract()
-{
-    const float TraceDist = 200.f;
-    FVector Start = FollowCamera->GetComponentLocation();
-    FVector End = Start + (FollowCamera->GetComponentRotation().Vector() * TraceDist);
-    
-    FHitResult Hit;
-    FCollisionQueryParams Params;
-    Params.AddIgnoredActor(this);
-    
-    bool bHit = GetWorld()->LineTraceSingleByChannel(Hit, Start, End, ECC_Visibility, Params);
-    if (bHit && Hit.GetActor())
-    {
-        if (AItemBase* Item = Cast<AItemBase>(Hit.GetActor()))
-        {
-            ServerPickupItem(Item);
-        }
-    }
-}
-
-void ALotACharacter::ServerPickupItem_Implementation(AItemBase* ItemActor)
-{
-    if (!ItemActor || !IsValid(ItemActor) || ItemActor->IsActorBeingDestroyed())
-    {
-        return;
-    }
-
-    FS_ItemInfo Info = ItemActor->ItemDetails;
-    int32 Qty = ItemActor->StackCount;
-
-    // Try to add to main inventory first
-    UBagComponent* MainBag = FindBagComponent(TEXT("Bag_MainInventory"));
-    if (!MainBag)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("No main bag => cannot pick up item"));
-        return;
-    }
-
-    int32 SlotIndex = FindOrCreateSlotIndex(MainBag, Info, Qty);
-    if (SlotIndex == INDEX_NONE)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("No available slot for item %s"), *Info.ItemName.ToString());
-        return;
-    }
-
-    MainBag->TryAddItem(Info, Qty, SlotIndex);
-    ItemActor->OnPickedUp();
-}
-
-//////////////////////////////////////////////////////////////////////////
-// Bag System Implementation
 
 UBagComponent* ALotACharacter::AddBagComponent(const FS_ItemInfo& BagInfo)
 {
@@ -440,31 +362,6 @@ void ALotACharacter::UpdateBagWeights()
     
     float TotalWeight = GetTotalBagsWeight();
     OnTotalWeightChanged(TotalWeight);
-}
-
-int32 ALotACharacter::FindOrCreateSlotIndex(UBagComponent* Bag, const FS_ItemInfo& Item, int32 Quantity)
-{
-    const TArray<FBagSlotState>& Slots = Bag->GetSlotStates();
-    int32 FirstEmpty = INDEX_NONE;
-
-    for (int32 i = 0; i < Slots.Num(); i++)
-    {
-        const FBagSlotState& S = Slots[i];
-        if (!S.IsEmpty() && S.ItemInfo.ItemID == Item.ItemID)
-        {
-            int32 Space = Item.MaxStackSize - S.Quantity;
-            if (Space > 0)
-            {
-                return i; // Found a partial stack that can accept more
-            }
-        }
-        else if (S.IsEmpty() && FirstEmpty == INDEX_NONE)
-        {
-            FirstEmpty = i;
-        }
-    }
-    
-    return FirstEmpty;
 }
 
 FName ALotACharacter::GenerateBagKey(const FS_ItemInfo& BagInfo) const

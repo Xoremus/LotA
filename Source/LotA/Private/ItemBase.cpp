@@ -12,6 +12,10 @@ AItemBase::AItemBase()
     PickupCollision = CreateDefaultSubobject<USphereComponent>(TEXT("PickupCollision"));
     PickupCollision->SetupAttachment(ItemMesh);
     PickupCollision->SetSphereRadius(50.f);
+    PickupCollision->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+    PickupCollision->SetCollisionObjectType(ECC_WorldDynamic);
+    PickupCollision->SetCollisionResponseToAllChannels(ECR_Ignore);
+    PickupCollision->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
 }
 
 void AItemBase::BeginPlay()
@@ -26,9 +30,17 @@ void AItemBase::Tick(float DeltaTime)
 
 void AItemBase::OnInteract_Implementation(AActor* Interactor)
 {
+    UE_LOG(LogTemp, Warning, TEXT("ItemBase OnInteract called for %s"), *GetName());
+    
     if (ALotACharacter* Character = Cast<ALotACharacter>(Interactor))
     {
+        UE_LOG(LogTemp, Warning, TEXT("Calling ServerPickupItem on character %s"), *Character->GetName());
         Character->ServerPickupItem(this);
+    }
+    else
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Interactor is not a LotACharacter: %s"), 
+            Interactor ? *Interactor->GetName() : TEXT("None"));
     }
 }
 

@@ -39,6 +39,9 @@ public:
     UFUNCTION(BlueprintPure, Category = "Inventory")
     bool TryGetParentBagSlotIndex(int32& OutSlotIndex) const;
 
+    UFUNCTION(BlueprintPure, Category = "Inventory")
+    bool IsEmpty() const { return GetQuantity() <= 0; }
+
 protected:
     virtual void NativeConstruct() override;
     virtual FReply NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;

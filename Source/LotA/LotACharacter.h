@@ -7,6 +7,8 @@
 #include "BagComponent.h"
 #include "InputActionValue.h"
 #include "ItemBase.h"
+#include "MainInventoryWidget.h"
+#include "InventorySlotWidget.h"
 #include "LotACharacter.generated.h"
 
 class UInteractionComponent;
@@ -138,6 +140,8 @@ public:
     UFUNCTION(Server, Reliable)
     void ServerPickupItem(AItemBase* ItemActor);
 
+    void UpdateBagWeights();
+
 protected:
     // -----------------------------
     //  ACharacter overrides
@@ -164,7 +168,7 @@ protected:
     void OnRightMouseReleased();
 
     // Bag / weight
-    void UpdateBagWeights();
+    //void UpdateBagWeights();
     FName GenerateBagKey(const FS_ItemInfo& BagInfo) const;
     bool IsBagKeyValid(const FName& BagKey) const;
 
