@@ -3,6 +3,7 @@
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "Blueprint/UserWidget.h"
+#include "LotA/LotACharacter.h"
 
 ALotAPlayerController::ALotAPlayerController()
 {
@@ -14,19 +15,6 @@ void ALotAPlayerController::BeginPlay()
 {
     Super::BeginPlay();
 
-    // Add Input Mapping Context
-    if (ULocalPlayer* LocalPlayer = Cast<ULocalPlayer>(Player))
-    {
-        if (UEnhancedInputLocalPlayerSubsystem* InputSystem = LocalPlayer->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>())
-        {
-            if (DefaultMappingContext)
-            {
-                InputSystem->AddMappingContext(DefaultMappingContext, 0);
-                UE_LOG(LogTemp, Warning, TEXT("DefaultMappingContext added"));
-            }
-        }
-    }
-
     // Create and Add Main Inventory Widget
     if (MainInventoryWidgetClass)
     {
@@ -35,7 +23,26 @@ void ALotAPlayerController::BeginPlay()
         {
             MainInventoryWidget->AddToViewport();
             MainInventoryWidget->SetVisibility(ESlateVisibility::Hidden);
+
+            // Set the reference on the character
+            if (ALotACharacter* LotAChar = Cast<ALotACharacter>(GetPawn()))
+            {
+                LotAChar->SetMainInventoryWidget(MainInventoryWidget);
+            }
+
             UE_LOG(LogTemp, Warning, TEXT("MainInventoryWidget created and added to viewport"));
+        }
+    }
+
+    // Add Input Mapping Context
+    if (ULocalPlayer* LocalPlayer = Cast<ULocalPlayer>(Player))
+    {
+        if (UEnhancedInputLocalPlayerSubsystem* InputSystem = LocalPlayer->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>())
+        {
+            if (DefaultMappingContext)
+            {
+                InputSystem->AddMappingContext(DefaultMappingContext, 0);
+            }
         }
     }
 }

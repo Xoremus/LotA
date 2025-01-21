@@ -3,7 +3,6 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "IInteractable.h"
-#include "ItemBase.h"
 #include "InteractionComponent.generated.h"
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnInteractableFound, AActor*, InteractableActor);
@@ -17,6 +16,7 @@ class LOTA_API UInteractionComponent : public UActorComponent
 
 public:    
     UInteractionComponent();
+
     virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
     // Try to interact with whatever we're looking at
@@ -58,7 +58,7 @@ protected:
     UPROPERTY(EditAnywhere, Category = "Interaction|Trace")
     float TraceInterval = 0.1f;
 
-    // Debug
+    // Debug visualization
     UPROPERTY(EditAnywhere, Category = "Interaction|Debug")
     bool bShowDebugTrace = false;
 
@@ -66,12 +66,12 @@ private:
     // Perform the interaction trace
     void PerformInteractionTrace();
 
-    // Handle pickup attempt
+    // Handle item pickup
     UFUNCTION(Server, Reliable)
-    void ServerHandleItemPickup(AItemBase* ItemActor);
+    void ServerHandleItemPickup(class AItemBase* ItemActor);
 
     // Try to find space for an item
-    bool TryFindSpaceForItem(const FS_ItemInfo& ItemInfo, int32 Quantity);
+    bool TryFindSpaceForItem(const struct FS_ItemInfo& ItemInfo, int32 Quantity);
 
     // Currently focused interactable actor
     UPROPERTY()
@@ -85,4 +85,10 @@ private:
 
     // Helper function to get owning character
     class ALotACharacter* GetOwningLotACharacter() const;
+
+    // Helper to get the notification manager
+    class APickupNotificationManager* GetNotificationManager() const;
+
+    // Show pickup success notification
+    void ShowPickupNotification(const FS_ItemInfo& ItemInfo, int32 Quantity) const;
 };

@@ -106,10 +106,16 @@ public:
     UPROPERTY()
     TMap<FName, UBagComponent*> ActiveBagComponents;
 
+    UPROPERTY()
+    class UMainInventoryWidget* MainInventoryWidget;
+
     void HandleBagPickup(AItemBase* BagActor);
     // Bag functions
     UFUNCTION(BlueprintCallable, Category="Inventory")
     UBagComponent* AddBagComponent(const FS_ItemInfo& BagInfo);
+
+    UFUNCTION()
+    void SetMainInventoryWidget(UMainInventoryWidget* Widget) { MainInventoryWidget = Widget; }
 
     UFUNCTION(BlueprintCallable, Category="Inventory")
     UBagComponent* FindBagByKey(const FName& BagKey) const;

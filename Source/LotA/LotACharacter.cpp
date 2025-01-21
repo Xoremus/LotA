@@ -165,6 +165,15 @@ void ALotACharacter::Look(const FInputActionValue& Value)
     AddControllerPitchInput(LookAxisVector.Y);
 }
 
+void ALotACharacter::OnInteract()
+{
+    // This is kept for compatibility but delegates to InteractionComponent
+    if (InteractionComponent)
+    {
+        InteractionComponent->TryInteract();
+    }
+}
+
 void ALotACharacter::OnRightMousePressed()
 {
     bIsRightMouseDown = true;
@@ -345,9 +354,46 @@ void ALotACharacter::RemoveBagComponent(UBagComponent* BagComp)
     }
 }
 
+void ALotACharacter::ServerPickupItem_Implementation(AItemBase* ItemActor)
+{
+    // This is kept for compatibility but delegates to InteractionComponent
+    if (InteractionComponent)
+    {
+        InteractionComponent->TryInteract();
+    }
+}
+
 void ALotACharacter::OnBagWeightChanged(float NewWeight)
 {
     UpdateBagWeights();
+}
+
+int32 ALotACharacter::FindOrCreateSlotIndex(UBagComponent* Bag, const FS_ItemInfo& Item, int32 Quantity)
+{
+    if (!Bag) return INDEX_NONE;
+
+    const TArray<FBagSlotState>& Slots = Bag->GetSlotStates();
+    int32 FirstEmpty = INDEX_NONE;
+
+    // First look for partial stacks
+    for (int32 i = 0; i < Slots.Num(); i++)
+    {
+        const FBagSlotState& S = Slots[i];
+        if (!S.IsEmpty() && S.ItemInfo.ItemID == Item.ItemID)
+        {
+            int32 Space = Item.MaxStackSize - S.Quantity;
+            if (Space > 0)
+            {
+                return i;
+            }
+        }
+        else if (S.IsEmpty() && FirstEmpty == INDEX_NONE)
+        {
+            FirstEmpty = i;
+        }
+    }
+
+    return FirstEmpty;
 }
 
 void ALotACharacter::UpdateBagWeights()
