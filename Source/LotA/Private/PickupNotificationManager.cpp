@@ -46,43 +46,13 @@ void APickupNotificationManager::BeginPlay()
 
 void APickupNotificationManager::ShowPickupNotification(const FS_ItemInfo& Item, int32 Quantity)
 {
-    if (!NotificationWidgetClass)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("ShowPickupNotification: NotificationWidgetClass is NULL"));
-        LogDebugState();
-        return;
-    }
-
-    // Get the local player controller
-    APlayerController* PC = nullptr;
-    for (FConstPlayerControllerIterator Iterator = GetWorld()->GetPlayerControllerIterator(); Iterator; ++Iterator)
-    {
-        APlayerController* TestPC = Iterator->Get();
-        if (TestPC && TestPC->IsLocalController())
-        {
-            UE_LOG(LogTemp, Warning, TEXT("Found local player controller: %s"), *TestPC->GetName());
-            PC = TestPC;
-            break;
-        }
-    }
-
-    if (!PC)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("ShowPickupNotification: No local player controller found"));
-        return;
-    }
-
-    UE_LOG(LogTemp, Warning, TEXT("=== ShowPickupNotification Start ==="));
-    UE_LOG(LogTemp, Warning, TEXT("Current Active Notifications: %d"), ActiveNotifications.Num());
-
-    // Cleanup old or invalid notifications
-    int32 PreCleanupCount = ActiveNotifications.Num();
-    ActiveNotifications.RemoveAll([](UPickupNotificationWidget* Widget) {
-        return !IsValid(Widget) || !Widget->IsVisible();
-    });
-    int32 PostCleanupCount = ActiveNotifications.Num();
-    
-    UE_LOG(LogTemp, Warning, TEXT("Cleanup: Before=%d, After=%d"), PreCleanupCount, PostCleanupCount);
+	APlayerController* PC = UGameplayStatics::GetPlayerController(GetWorld(), 0);
+	if (!PC)
+	{
+		UE_LOG(LogTemp, Error, TEXT("ShowPickupNotification: Invalid PlayerController"));
+		return;
+	}
+    // ... existing validation code ...
 
     // Create new notification
     UPickupNotificationWidget* NewNotification = CreateWidget<UPickupNotificationWidget>(PC, NotificationWidgetClass);
@@ -92,77 +62,79 @@ void APickupNotificationManager::ShowPickupNotification(const FS_ItemInfo& Item,
         return;
     }
 
-    // Add to viewport before setting up
+    // Add to viewport first
     NewNotification->AddToViewport(100);
+    
+    // Setup the notification
     NewNotification->SetupNotification(Item, Quantity);
 
-    // Defer positioning to next frame
-    GetWorld()->GetTimerManager().SetTimerForNextTick([this, NewNotification]() {
-        if (!IsValid(NewNotification))
+    // Remove oldest if at max
+    while (ActiveNotifications.Num() >= MaxNotifications)
+    {
+        if (ActiveNotifications.Num() > 0 && IsValid(ActiveNotifications[0]))
         {
-            UE_LOG(LogTemp, Error, TEXT("Notification became invalid before positioning"));
-            return;
+            ActiveNotifications[0]->RemoveFromParent();
+            ActiveNotifications.RemoveAt(0);
         }
+    }
 
-        // Add to our list first
-        ActiveNotifications.Add(NewNotification);
-        
-        UE_LOG(LogTemp, Warning, TEXT("=== Positioning Notifications ==="));
-        UE_LOG(LogTemp, Warning, TEXT("Active Notifications Count: %d"), ActiveNotifications.Num());
-
-        float CurrentY = 100.0f;
-        for (int32 i = 0; i < ActiveNotifications.Num(); ++i)
-        {
-            UPickupNotificationWidget* Notification = ActiveNotifications[i];
-            if (!IsValid(Notification))
-            {
-                UE_LOG(LogTemp, Warning, TEXT("Notification at index %d is invalid"), i);
-                continue;
-            }
-
-            if (UCanvasPanelSlot* CanvasSlot = Cast<UCanvasPanelSlot>(Notification->Slot))
-            {
-                FVector2D Size = Notification->GetDesiredSize();
-                CanvasSlot->SetAnchors(FAnchors(1.0f, 0.0f));
-                CanvasSlot->SetAlignment(FVector2D(1.0f, 0.0f));
-                CanvasSlot->SetPosition(FVector2D(-20.0f, CurrentY));
-                CanvasSlot->SetAutoSize(true);
-
-                CurrentY += Size.Y + NotificationSpacing;
-
-                UE_LOG(LogTemp, Warning, TEXT("Notification %d positioned at Y=%f, Height=%f"), 
-                    i, CurrentY - Size.Y, Size.Y);
-            }
-            else
-            {
-                UE_LOG(LogTemp, Warning, TEXT("Failed to get canvas slot for notification %d"), i);
-            }
-        }
-
-        UE_LOG(LogTemp, Warning, TEXT("=== Positioning Complete ==="));
-    });
-
-    UE_LOG(LogTemp, Warning, TEXT("=== ShowPickupNotification End ==="));
+    // Add to active list and update positions
+    ActiveNotifications.Add(NewNotification);
+    UpdateNotificationPositions();
+	
+	// Bind the fade complete event for the new notification
+	NewNotification->OnFadeComplete.AddDynamic(this, &APickupNotificationManager::OnNotificationFadeComplete);
 }
 
 void APickupNotificationManager::UpdateNotificationPositions()
 {
+	APlayerController* PC = UGameplayStatics::GetPlayerController(GetWorld(), 0);
+	if (!PC)
+	{
+		UE_LOG(LogTemp, Error, TEXT("UpdateNotificationPositions: Invalid PlayerController"));
+		return;
+	}
     float CurrentY = 100.0f;
 
     for (int32 i = 0; i < ActiveNotifications.Num(); ++i)
     {
         UPickupNotificationWidget* Notification = ActiveNotifications[i];
         if (!IsValid(Notification))
-            continue;
-
-        if (UCanvasPanelSlot* CanvasSlot = Cast<UCanvasPanelSlot>(Notification->Slot))
         {
-            CanvasSlot->SetAnchors(FAnchors(1.0f, 0.0f));
-            CanvasSlot->SetAlignment(FVector2D(1.0f, 0.0f));
-            CanvasSlot->SetPosition(FVector2D(-20.0f, CurrentY));
-
-            CurrentY += Notification->GetDesiredSize().Y + NotificationSpacing;
+            continue;
         }
+
+        // Get the widget's desired size
+        FVector2D Size = Notification->GetDesiredSize();
+        if (Size.Y <= 0)
+        {
+            // If size isn't available yet, use a default
+            Size.Y = 50.0f;
+        }
+        
+		// Position from the right edge
+		int32 ViewportX = 0, ViewportY = 0;
+		PC->GetViewportSize(ViewportX, ViewportY);
+		FVector2D ViewportSize(ViewportX, ViewportY);
+        FVector2D Position = FVector2D(ViewportSize.X - Size.X - 20.0f, CurrentY);
+
+		// Set Position
+        Notification->SetPositionInViewport(Position);
+
+        // Move down by widget height plus spacing
+        CurrentY += Size.Y + NotificationSpacing;
+            
+        // Log successful positioning
+        UE_LOG(LogTemp, Warning, TEXT("Successfully positioned notification %d at Y=%f"), i, CurrentY - Size.Y);
+    }
+}
+
+void APickupNotificationManager::OnNotificationFadeComplete(UPickupNotificationWidget* Widget)
+{
+    if (Widget)
+    {
+        ActiveNotifications.Remove(Widget);
+        UpdateNotificationPositions();
     }
 }
 

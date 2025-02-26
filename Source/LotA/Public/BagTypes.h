@@ -2,6 +2,8 @@
 
 #include "CoreMinimal.h"
 #include "S_ItemInfo.h"
+#include "UObject/ObjectMacros.h"
+#include "Engine/EngineTypes.h"
 #include "BagTypes.generated.h"
 
 // Individual slot state within a bag

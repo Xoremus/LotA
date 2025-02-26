@@ -1,3 +1,4 @@
+// LotACharacter.h
 #pragma once
 
 #include "CoreMinimal.h"
@@ -19,30 +20,17 @@ class UCameraComponent;
 class UCharacterStatsComponent;
 class UBagComponent;
 
-/**
- * ALotACharacter
- * 
- * Features:
- * - MMO-style WASD movement relative to camera
- * - Right Mouse Button camera control
- * - Auto-rotation to movement direction
- * - Optional auto-run with Left Mouse Button
- * - Full bag/inventory system
- * - Press E to pickup items
- */
 UCLASS(config=Game)
 class LOTA_API ALotACharacter : public ACharacter
 {
     GENERATED_BODY()
 
-public:
+public:    
     ALotACharacter();
 
     virtual void Tick(float DeltaTime) override;
 
-    // -----------------------------
-    //  Input Actions
-    // -----------------------------
+    // Input Actions
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Input")
     UInputMappingContext* DefaultMappingContext;
 
@@ -55,21 +43,16 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Input")
     UInputAction* JumpAction;
 
-    /** Press E to pick up items */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Input")
     UInputAction* IA_Interact;
 
-    /** Right Mouse to control camera */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Input")
     UInputAction* IA_RightMouse;
 
-    /** Left Mouse for auto-run */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Input")
     UInputAction* IA_AutoRun;
 
-    // -----------------------------
-    //  Camera
-    // -----------------------------
+    // Camera
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category=Camera)
     USpringArmComponent* CameraBoom;
 
@@ -82,9 +65,7 @@ public:
     UPROPERTY(EditAnywhere, Category="Camera")
     float CameraPitchMax;
 
-    // -----------------------------
-    //  Character Stats
-    // -----------------------------
+    // Stats
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Stats")
     UCharacterStatsComponent* StatsComponent;
 
@@ -95,14 +76,10 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Movement")
     float BaseWalkSpeed;
 
-    // -----------------------------
-    //  Bag System
-    // -----------------------------
-    /** Holds all bag states, replicated so server is authoritative */
+    // Bag System
     UPROPERTY(Replicated)
     FBagSaveData BagSaveData;
 
-    /** Map of active bag components keyed by BagKey */
     UPROPERTY()
     TMap<FName, UBagComponent*> ActiveBagComponents;
 
@@ -110,7 +87,7 @@ public:
     class UMainInventoryWidget* MainInventoryWidget;
 
     void HandleBagPickup(AItemBase* BagActor);
-    // Bag functions
+
     UFUNCTION(BlueprintCallable, Category="Inventory")
     UBagComponent* AddBagComponent(const FS_ItemInfo& BagInfo);
 
@@ -122,6 +99,9 @@ public:
 
     UFUNCTION(BlueprintCallable, Category="Inventory")
     UBagComponent* FindBagComponent(const FName& BagKey) const;
+
+    UFUNCTION(Server, Reliable, BlueprintCallable, Category = "Inventory")
+    void SaveAllBagStates();
 
     UFUNCTION(Server, Reliable, BlueprintCallable, Category="Inventory")
     void SaveBagState(UBagComponent* BagComp);
@@ -138,66 +118,70 @@ public:
     UFUNCTION(BlueprintCallable, Category="Inventory")
     void OnTotalWeightChanged(float NewTotalWeight);
 
+    UFUNCTION(BlueprintCallable, Category = "Inventory")
+    bool ValidateBagOperation(const FS_ItemInfo& BagInfo, FText& OutErrorMessage) const;
+
+    UFUNCTION(BlueprintPure, Category = "Inventory")
+    bool HasCircularBagReference(const FName& BagKey, const FName& TargetBagKey) const;
+
+    UFUNCTION(BlueprintPure, Category = "Inventory")
+    void GetAllActiveBagKeys(TArray<FName>& OutBagKeys) const;
+
+    UFUNCTION(BlueprintCallable, Category = "Inventory")
+    void SaveAllBagsAndClose();
+
     void RemoveBagComponent(UBagComponent* BagComp);
 
-    // -------------
-    //  Pickup
-    // -------------
+    // Pickup
     UFUNCTION(Server, Reliable)
     void ServerPickupItem(AItemBase* ItemActor);
 
     void UpdateBagWeights();
 
 protected:
-    // -----------------------------
-    //  ACharacter overrides
-    // -----------------------------
     virtual void BeginPlay() override;
     virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
-    // Movement & Look
     void Move(const FInputActionValue& Value);
     void Look(const FInputActionValue& Value);
     void ToggleAutoRun();
 
-    /** Press E => line trace to pick up item */
+    void ValidateBagHierarchy();
+
     UFUNCTION()
     void OnInteract();
 
-    /** Right Mouse pressed => activate camera control */
     UFUNCTION()
     void OnRightMousePressed();
 
-    /** Right Mouse released => deactivate camera control */
     UFUNCTION()
     void OnRightMouseReleased();
-
-    // Bag / weight
-    //void UpdateBagWeights();
-    FName GenerateBagKey(const FS_ItemInfo& BagInfo) const;
-    bool IsBagKeyValid(const FName& BagKey) const;
 
     UFUNCTION()
     void OnBagWeightChanged(float NewWeight);
 
-    /** Helper for picking up items => find a free/stackable slot */
     UFUNCTION()
     int32 FindOrCreateSlotIndex(UBagComponent* Bag, const FS_ItemInfo& Item, int32 Quantity);
 
 private:
-    /** Movement state */
     bool bIsRightMouseDown;
     bool bIsAutoRunning;
     FVector AutoRunDirection;
 
-    /** When true, moving mouse up will look down */
+    bool CheckCircularReference(const FName& StartBagKey, const FName& TargetBagKey, TSet<FName>& VisitedKeys) const;
+    
+    static const int32 MaxBagNestingDepth = 5;
+
     UPROPERTY(Config, EditAnywhere, Category="Camera|Controls")
     bool bInvertMouseY;
 
     UPROPERTY(EditAnywhere, Category="Inventory")
     float MaxCarryWeight = 100.0f;
 
+    FName GenerateBagKey(const FS_ItemInfo& BagInfo) const;
+    bool IsBagKeyValid(const FName& BagKey) const;
+    
     struct FBagSlotInfo
     {
         UBagComponent* Bag;
@@ -209,6 +193,5 @@ private:
     };
     
     bool FindAvailableSlotForItem(const FS_ItemInfo& Item, int32 Quantity, FBagSlotInfo& OutSlotInfo);
-
     bool AddItemToSlot(const FBagSlotInfo& SlotInfo, const FS_ItemInfo& Item, int32 Quantity);
 };

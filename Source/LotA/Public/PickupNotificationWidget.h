@@ -1,3 +1,4 @@
+// PickupNotificationWidget.h
 #pragma once
 
 #include "CoreMinimal.h"
@@ -5,39 +6,53 @@
 #include "S_ItemInfo.h"
 #include "PickupNotificationWidget.generated.h"
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnNotificationFadeComplete, UPickupNotificationWidget*, Widget);
+
 UCLASS()
 class LOTA_API UPickupNotificationWidget : public UUserWidget
 {
-	GENERATED_BODY()
+    GENERATED_BODY()
 
 public:
-	virtual void NativeConstruct() override;
+    virtual void NativeConstruct() override;
     
-	/** Setup the notification with item info */
-	UFUNCTION(BlueprintCallable, Category = "Pickup")
-	void SetupNotification(const FS_ItemInfo& Item, int32 Quantity);
+    /** Setup the notification with item info */
+    UFUNCTION(BlueprintCallable, Category = "Pickup")
+    void SetupNotification(const FS_ItemInfo& Item, int32 Quantity);
 
-	/** Start the fade out animation */
-	UFUNCTION(BlueprintCallable, Category = "Pickup")
-	void StartFadeOut();
+    /** Start the fade out animation */
+    UFUNCTION(BlueprintCallable, Category = "Pickup")
+    void StartFadeOut();
+
+    /** Event fired when the notification completes its fade out */
+    UPROPERTY(BlueprintAssignable, Category = "Pickup")
+    FOnNotificationFadeComplete OnFadeComplete;
 
 protected:
-	UPROPERTY(meta = (BindWidget))
-	class UImage* ItemIcon;
+    UPROPERTY(meta = (BindWidget))
+    class UImage* ItemIcon;
 
-	UPROPERTY(meta = (BindWidget))
-	class UTextBlock* ItemName;
+    UPROPERTY(meta = (BindWidget))
+    class UTextBlock* ItemName;
 
-	UPROPERTY(meta = (BindWidget))
-	class UTextBlock* QuantityText;
+    UPROPERTY(meta = (BindWidget))
+    class UTextBlock* QuantityText;
 
-	// Animation properties
-	UPROPERTY(EditAnywhere, Category = "Animation")
-	float FadeOutDelay = 2.0f;
+    // Animation properties
+    UPROPERTY(EditAnywhere, Category = "Animation")
+    float FadeOutDelay = 2.0f;
 
-	UPROPERTY(EditAnywhere, Category = "Animation")
-	float FadeOutDuration = 0.5f;
+    UPROPERTY(EditAnywhere, Category = "Animation")
+    float FadeOutDuration = 0.5f;
+
+    UPROPERTY(EditAnywhere, Category = "Animation")
+    float ScrollDuration = 0.5f;
 
 private:
-	FTimerHandle FadeTimer;
+    FTimerHandle FadeTimer;
+    FTimerHandle ScrollTimer;
+    float CurrentScrollTime = 0.0f;
+    FVector2D StartPosition;
+
+    void UpdatePosition();
 };

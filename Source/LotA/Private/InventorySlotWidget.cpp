@@ -1,4 +1,3 @@
-// InventorySlotWidget.cpp
 #include "InventorySlotWidget.h"
 #include "Blueprint/WidgetBlueprintLibrary.h"
 #include "GameFramework/Actor.h"
@@ -26,6 +25,417 @@ void UInventorySlotWidget::NativeConstruct()
 {
     Super::NativeConstruct();
     ClearSlot();
+}
+
+FReply UInventorySlotWidget::NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
+{
+    if (ItemQuantity <= 0)
+        return FReply::Unhandled();
+
+    UE_LOG(LogTemp, Warning, TEXT("[%s] NativeOnMouseButtonDown on item: %s (qty=%d), Button=%s"),
+        *GetName(),
+        *CurrentItemInfo.ItemName.ToString(),
+        ItemQuantity,
+        *InMouseEvent.GetEffectingButton().ToString());
+
+    if (InMouseEvent.GetEffectingButton() == EKeys::RightMouseButton)
+    {
+        if (CurrentItemInfo.ItemType == EItemType::Bag)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("Right-clicked bag: %s -> OpenBag"), *CurrentItemInfo.ItemName.ToString());
+            OpenBag();
+            return FReply::Handled();
+        }
+        return FReply::Unhandled();
+    }
+
+    if (InMouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
+    {
+        return FReply::Handled().DetectDrag(TakeWidget(), EKeys::LeftMouseButton);
+    }
+
+    return FReply::Unhandled();
+}
+
+void UInventorySlotWidget::NativeOnDragDetected(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent,  
+                                UDragDropOperation*& OutOperation)
+{
+    if (ItemQuantity <= 0)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[%s] NativeOnDragDetected -> No items to drag"), *GetName());
+        return;
+    }
+
+    UInventoryDragDropOperation* DragDropOp = Cast<UInventoryDragDropOperation>(
+        UWidgetBlueprintLibrary::CreateDragDropOperation(UInventoryDragDropOperation::StaticClass()));
+    
+    if (!DragDropOp)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Failed to create drag operation"));
+        return;
+    }
+
+    // If it's a bag, handle bag-specific logic
+    if (CurrentItemInfo.ItemType == EItemType::Bag)
+    {
+        ALotACharacter* Character = Cast<ALotACharacter>(GetOwningPlayerPawn());
+        if (ensure(Character))
+        {
+            FName BagKey = *FString::Printf(TEXT("Bag_%s"), *CurrentItemInfo.ItemID.ToString());
+            if (UBagComponent* BagComp = Character->FindBagByKey(BagKey))
+            {
+                // Don't allow dragging if the bag isn't empty
+                if (!BagComp->IsBagEmpty())
+                {
+                    UE_LOG(LogTemp, Warning, TEXT("Cannot drag non-empty bag"));
+                    return;
+                }
+
+                if (BagComp->IsBagOpen())
+                {
+                    UE_LOG(LogTemp, Warning, TEXT("Forcing bag %s to close."), *BagKey.ToString());
+                    BagComp->ForceClose();
+                }
+            }
+        }
+
+        DraggedQuantity = ItemQuantity;
+        DraggedItemInfo = CurrentItemInfo;
+        ClearSlot();
+        DragDropOp->bSplitStack = false;
+    }
+    else if (InMouseEvent.IsShiftDown() && ItemQuantity > 1)
+    {
+        DraggedQuantity = 1;
+        ItemQuantity -= 1;
+        DraggedItemInfo = CurrentItemInfo;
+        DragDropOp->bSplitStack = true;
+        UpdateVisuals();
+    }
+    else if (InMouseEvent.IsControlDown() && ItemQuantity > 1)
+    {
+        DraggedQuantity = ItemQuantity / 2;
+        ItemQuantity -= DraggedQuantity;
+        DraggedItemInfo = CurrentItemInfo;
+        DragDropOp->bSplitStack = true;
+        UpdateVisuals();
+    }
+    else
+    {
+        DraggedQuantity = ItemQuantity;
+        DraggedItemInfo = CurrentItemInfo;
+        ClearSlot();
+        DragDropOp->bSplitStack = false;
+    }
+
+    DragDropOp->DraggedItem = DraggedItemInfo;
+    DragDropOp->OriginalQuantity = DraggedQuantity;
+    DragDropOp->SourceSlot = this;
+
+    // Create visual feedback
+    const FSoftClassPath DragVisualPath(TEXT("/Game/Inventory/Widgets/WBP_DragVisual.WBP_DragVisual_C"));
+    if (TSubclassOf<UDragDropVisual> DragVisualClass = DragVisualPath.TryLoadClass<UDragDropVisual>())
+    {
+        if (UDragDropVisual* Visual = CreateWidget<UDragDropVisual>(this, DragVisualClass))
+        {
+            Visual->SetItemIcon(DraggedItemInfo.ItemIcon);
+            Visual->SetQuantityText(DraggedQuantity);
+            DragDropOp->DefaultDragVisual = Visual;
+            DragDropOp->Pivot = EDragPivot::MouseDown;
+        }
+    }
+
+    bIsInDragOperation = true;
+    OutOperation = DragDropOp;
+
+    if (!bSuppressWeightUpdate)
+    {
+        if (UMainInventoryWidget* MainInv = GetMainInventoryWidget())
+        {
+            MainInv->RequestWeightUpdate();
+        }
+    }
+}
+
+bool UInventorySlotWidget::NativeOnDrop(
+    const FGeometry& InGeometry,
+    const FDragDropEvent& InDragDropEvent,
+    UDragDropOperation* InOperation
+)
+{
+    UInventoryDragDropOperation* DragDrop = Cast<UInventoryDragDropOperation>(InOperation);
+    if (!DragDrop)
+        return false;
+
+    // Check if dropping back to source slot
+    if (DragDrop->SourceSlot == this)
+    {
+        SetItemDetails(DragDrop->DraggedItem, DragDrop->OriginalQuantity);
+        return true;
+    }
+
+    // Validate drop operation
+    FText ErrorMessage;
+    if (!ValidateDropOperation(InOperation, ErrorMessage))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Drop validation failed: %s"), *ErrorMessage.ToString());
+        DragDrop->SourceSlot->FindAndRestoreToAvailableSlot();
+        return false;
+    }
+
+    // Handle dropping into a bag slot
+    if (UBagComponent* TargetBagComp = GetParentBagComponent())
+    {
+        int32 TargetSlotIndex;
+        if (!TryGetParentBagSlotIndex(TargetSlotIndex))
+        {
+            UE_LOG(LogTemp, Warning, TEXT("Invalid target bag slot index"));
+            DragDrop->SourceSlot->FindAndRestoreToAvailableSlot();
+            return false;
+        }
+
+        FText CanAcceptReason;
+        if (!TargetBagComp->CanAcceptItem(DragDrop->DraggedItem, TargetSlotIndex, CanAcceptReason))
+        {
+            UE_LOG(LogTemp, Warning, TEXT("Bag cannot accept item: %s"), *CanAcceptReason.ToString());
+            DragDrop->SourceSlot->FindAndRestoreToAvailableSlot();
+            return false;
+        }
+
+        // Try stacking if same item
+        if (ItemQuantity > 0 && CurrentItemInfo.ItemID == DragDrop->DraggedItem.ItemID)
+        {
+            int32 Space = CurrentItemInfo.MaxStackSize - ItemQuantity;
+            if (Space > 0)
+            {
+                int32 AmountToAdd = FMath::Min(Space, DragDrop->OriginalQuantity);
+                int32 NewTotal = ItemQuantity + AmountToAdd;
+
+                TargetBagComp->ServerTryAddItem(DragDrop->DraggedItem, NewTotal, TargetSlotIndex);
+
+                if (!DragDrop->bSplitStack)
+                {
+                    if (UBagComponent* SourceBagComp = DragDrop->SourceSlot->GetParentBagComponent())
+                    {
+                        int32 SourceIndex;
+                        if (DragDrop->SourceSlot->TryGetParentBagSlotIndex(SourceIndex))
+                        {
+                            SourceBagComp->ServerTryRemoveItem(SourceIndex);
+                        }
+                    }
+                    else
+                    {
+                        DragDrop->SourceSlot->ClearSlot();
+                    }
+                }
+
+                ItemQuantity = NewTotal;
+                UpdateVisuals();
+                return true;
+            }
+        }
+        // Place as new item
+        else
+        {
+            TargetBagComp->ServerTryAddItem(DragDrop->DraggedItem, DragDrop->OriginalQuantity, TargetSlotIndex);
+
+            if (!DragDrop->bSplitStack)
+            {
+                if (UBagComponent* SourceBagComp = DragDrop->SourceSlot->GetParentBagComponent())
+                {
+                    int32 SourceIndex;
+                    if (DragDrop->SourceSlot->TryGetParentBagSlotIndex(SourceIndex))
+                    {
+                        SourceBagComp->ServerTryRemoveItem(SourceIndex);
+                    }
+                }
+                else
+                {
+                    DragDrop->SourceSlot->ClearSlot();
+                }
+            }
+
+SetItemDetails(DragDrop->DraggedItem, DragDrop->OriginalQuantity);
+            return true;
+        }
+
+        DragDrop->SourceSlot->FindAndRestoreToAvailableSlot();
+        return false;
+    }
+
+    // Handle main inventory drops
+    if (ItemQuantity > 0 && CurrentItemInfo.ItemID == DragDrop->DraggedItem.ItemID)
+    {
+        int32 Space = CurrentItemInfo.MaxStackSize - ItemQuantity;
+        if (Space > 0)
+        {
+            int32 ToAdd = FMath::Min(Space, DragDrop->OriginalQuantity);
+            ItemQuantity += ToAdd;
+            UpdateVisuals();
+
+            if (!DragDrop->bSplitStack)
+            {
+                DragDrop->SourceSlot->ClearSlot();
+            }
+
+            if (UMainInventoryWidget* MainInv = GetMainInventoryWidget())
+            {
+                MainInv->RequestWeightUpdate();
+            }
+            return true;
+        }
+    }
+
+    // Handle slot swap
+    FS_ItemInfo OldItem = CurrentItemInfo;
+    int32 OldQuantity = ItemQuantity;
+
+    SetItemDetails(DragDrop->DraggedItem, DragDrop->OriginalQuantity);
+
+    if (!DragDrop->bSplitStack)
+    {
+        if (OldQuantity > 0)
+        {
+            DragDrop->SourceSlot->SetItemDetails(OldItem, OldQuantity);
+        }
+        else
+        {
+            DragDrop->SourceSlot->ClearSlot();
+        }
+    }
+
+    if (UMainInventoryWidget* MainInv = GetMainInventoryWidget())
+    {
+        MainInv->RequestWeightUpdate();
+    }
+
+    return true;
+}
+
+void UInventorySlotWidget::NativeOnDragCancelled(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
+{
+    UInventoryDragDropOperation* DragDrop = Cast<UInventoryDragDropOperation>(InOperation);
+    if (!DragDrop)
+    {
+        bIsInDragOperation = false;
+        return;
+    }
+
+    FVector2D MousePos = InDragDropEvent.GetScreenSpacePosition();
+    if (UPanelWidget* ParentPanel = GetParent())
+    {
+        FGeometry PanelGeo = ParentPanel->GetCachedGeometry();
+        FVector2D PPos = PanelGeo.GetAbsolutePosition();
+        FVector2D PSize = PanelGeo.GetAbsoluteSize();
+
+        bool bOutside = (MousePos.X < PPos.X || MousePos.X > (PPos.X + PSize.X) ||
+                        MousePos.Y < PPos.Y || MousePos.Y > (PPos.Y + PSize.Y));
+
+        if (!bOutside || DragDrop->DraggedItem.ItemType == EItemType::Bag)
+        {
+            if (!FindAndRestoreToAvailableSlot())
+            {
+                if (DragDrop->bSplitStack)
+                {
+                    ItemQuantity += DraggedQuantity;
+                    UpdateVisuals();
+                }
+                else
+                {
+                    SetItemDetails(DraggedItemInfo, DraggedQuantity);
+                }
+            }
+        }
+        else
+        {
+            // Show destroy confirmation
+            const FSoftClassPath DestroyWidgetPath(TEXT("/Game/Inventory/Widgets/WBP_Destroy.WBP_Destroy_C"));
+            if (TSubclassOf<UDestroyConfirmationWidget> DestroyWidgetClass = DestroyWidgetPath.TryLoadClass<UDestroyConfirmationWidget>())
+            {
+                if (UDestroyConfirmationWidget* DestroyWidget = CreateWidget<UDestroyConfirmationWidget>(GetOwningPlayer(), DestroyWidgetClass))
+                {
+                    DestroyWidget->SetItemToDestroy(DraggedItemInfo, DraggedQuantity);
+                    DestroyWidget->OnDestroyConfirmed.AddDynamic(this, &UInventorySlotWidget::OnItemDestroyConfirmed);
+                    DestroyWidget->OnDestroyCancelled.AddDynamic(this, &UInventorySlotWidget::OnItemDestroyCancelled);
+                    DestroyWidget->AddToViewport();
+                    DestroyWidget->SetPositionInViewport(MousePos);
+                    return;
+                }
+            }
+        }
+    }
+
+    bIsInDragOperation = false;
+    DraggedQuantity = 0;
+    DraggedItemInfo = FS_ItemInfo();
+}
+
+void UInventorySlotWidget::NativeOnDragEnter(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
+{
+    if (UInventoryDragDropOperation* DragOp = Cast<UInventoryDragDropOperation>(InOperation))
+    {
+        FText ErrorMessage;
+        bool bCanAccept = ValidateDropOperation(InOperation, ErrorMessage);
+        UpdateDragVisualFeedback(bCanAccept);
+    }
+}
+
+void UInventorySlotWidget::NativeOnDragLeave(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
+{
+    ResetVisualFeedback();
+}
+
+bool UInventorySlotWidget::ValidateDropOperation(UDragDropOperation* Operation, FText& OutErrorMessage) const
+{
+    UInventoryDragDropOperation* DragOp = Cast<UInventoryDragDropOperation>(Operation);
+    if (!DragOp)
+    {
+        OutErrorMessage = NSLOCTEXT("InventorySlot", "InvalidOperation", "Invalid drag operation");
+        return false;
+    }
+
+    // Check for bag-specific rules
+    if (DragOp->DraggedItem.ItemType == EItemType::Bag)
+    {
+        if (UBagComponent* TargetBag = GetParentBagComponent())
+        {
+            FText CanAcceptReason;
+            int32 TargetSlot;
+            if (TryGetParentBagSlotIndex(TargetSlot))
+            {
+                if (!TargetBag->CanAcceptItem(DragOp->DraggedItem, TargetSlot, CanAcceptReason))
+                {
+                    OutErrorMessage = CanAcceptReason;
+                    return false;
+                }
+            }
+        }
+    }
+
+    return true;
+}
+
+void UInventorySlotWidget::UpdateDragVisualFeedback(bool bIsValidDrop)
+{
+    if (ItemIcon)
+    {
+        FLinearColor Color = bIsValidDrop ? FLinearColor(1.0f, 1.0f, 1.0f, 0.7f) : FLinearColor(1.0f, 0.0f, 0.0f, 0.7f);
+        ItemIcon->SetColorAndOpacity(Color);
+    }
+}
+
+void UInventorySlotWidget::ResetVisualFeedback()
+{
+    if (ItemIcon)
+    {
+        ItemIcon->SetColorAndOpacity(FLinearColor(1.0f, 1.0f, 1.0f, 1.0f));
+    }
+}
+
+void UInventorySlotWidget::OnBagOperationFailed(const FText& FailureReason)
+{
+    // Could add UI feedback here
+    UE_LOG(LogTemp, Warning, TEXT("Bag operation failed: %s"), *FailureReason.ToString());
 }
 
 void UInventorySlotWidget::SetItemDetails(const FS_ItemInfo& InItemInfo, int32 Quantity)
@@ -101,371 +511,33 @@ bool UInventorySlotWidget::TryGetParentBagSlotIndex(int32& OutSlotIndex) const
     return false;
 }
 
-FReply UInventorySlotWidget::NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
+void UInventorySlotWidget::UpdateVisuals()
 {
-    if (ItemQuantity <= 0)
-        return FReply::Unhandled();
-
-    UE_LOG(LogTemp, Warning, TEXT("[%s] NativeOnMouseButtonDown on item: %s (qty=%d), Button=%s"),
-        *GetName(),
-        *CurrentItemInfo.ItemName.ToString(),
-        ItemQuantity,
-        *InMouseEvent.GetEffectingButton().ToString());
-
-    if (InMouseEvent.GetEffectingButton() == EKeys::RightMouseButton)
+    if (ItemIcon)
     {
-        // If it's a Bag, open it
-        if (CurrentItemInfo.ItemType == EItemType::Bag)
+        if (CurrentItemInfo.ItemIcon)
         {
-            UE_LOG(LogTemp, Warning, TEXT("Right-clicked bag: %s -> OpenBag"), *CurrentItemInfo.ItemName.ToString());
-            OpenBag();
-            return FReply::Handled();
-        }
-        return FReply::Unhandled();
-    }
-
-    if (InMouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("Left-click -> Drag item: %s, qty=%d"), 
-            *CurrentItemInfo.ItemName.ToString(), ItemQuantity);
-        return FReply::Handled().DetectDrag(TakeWidget(), EKeys::LeftMouseButton);
-    }
-
-    return FReply::Unhandled();
-}
-
-void UInventorySlotWidget::NativeOnDragDetected(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent,  
-                                UDragDropOperation*& OutOperation)
-{
-    if (ItemQuantity <= 0)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("[%s] NativeOnDragDetected -> No items to drag"), *GetName());
-        return;
-    }
-
-    UE_LOG(LogTemp, Warning, TEXT("[%s] NativeOnDragDetected -> item: %s, qty=%d"),
-        *GetName(),
-        *CurrentItemInfo.ItemName.ToString(),
-        ItemQuantity);
-
-    UInventoryDragDropOperation* DragDropOp = Cast<UInventoryDragDropOperation>(
-        UWidgetBlueprintLibrary::CreateDragDropOperation(UInventoryDragDropOperation::StaticClass()));
-    
-    if (!DragDropOp) 
-    {
-        UE_LOG(LogTemp, Warning, TEXT("Failed to create drag operation"));
-        return;
-    }
-
-    // If it's a bag, handle bag-specific logic
-    if (CurrentItemInfo.ItemType == EItemType::Bag)
-    {
-        ALotACharacter* Character = Cast<ALotACharacter>(GetOwningPlayerPawn());
-        if (ensure(Character))
-        {
-            FName BagKey = *FString::Printf(TEXT("Bag_%s"), *CurrentItemInfo.ItemID.ToString());
-            if (UBagComponent* BagComp = Character->FindBagByKey(BagKey))
-            {
-                if (BagComp->IsBagOpen())
-                {
-                    UE_LOG(LogTemp, Warning, TEXT("Forcing bag %s to close."), *BagKey.ToString());
-                    BagComp->ForceClose();  // This will handle removal
-                }
-            }
-        }
-
-        DraggedQuantity = ItemQuantity;
-        DraggedItemInfo = CurrentItemInfo;
-        ClearSlot();
-        DragDropOp->bSplitStack = false;
-    
-        UE_LOG(LogTemp, Warning, TEXT("Dragging a BAG item -> forcibly clearing slot."));
-    }
-    else if (InMouseEvent.IsShiftDown() && ItemQuantity > 1)
-    {
-        DraggedQuantity = 1;
-        ItemQuantity -= 1;
-        DraggedItemInfo = CurrentItemInfo;
-        DragDropOp->bSplitStack = true;
-
-        UE_LOG(LogTemp, Warning, TEXT("Shift-dragging 1 out of %d."), ItemQuantity + 1);
-        UpdateVisuals();
-    }
-    else if (InMouseEvent.IsControlDown() && ItemQuantity > 1)
-    {
-        DraggedQuantity = ItemQuantity / 2;
-        ItemQuantity -= DraggedQuantity;
-        DraggedItemInfo = CurrentItemInfo;
-        DragDropOp->bSplitStack = true;
-
-        UE_LOG(LogTemp, Warning, TEXT("Ctrl-dragging half -> Dragged: %d, left: %d"), 
-            DraggedQuantity, ItemQuantity);
-        UpdateVisuals();
-    }
-    else
-    {
-        DraggedQuantity = ItemQuantity;
-        DraggedItemInfo = CurrentItemInfo;
-        ClearSlot();
-        DragDropOp->bSplitStack = false;
-
-        UE_LOG(LogTemp, Warning, TEXT("Dragging full stack of %d."), DraggedQuantity);
-    }
-
-    DragDropOp->DraggedItem = DraggedItemInfo;
-    DragDropOp->OriginalQuantity = DraggedQuantity;
-    DragDropOp->SourceSlot = this;
-
-    const FSoftClassPath DragVisualPath(TEXT("/Game/Inventory/Widgets/WBP_DragVisual.WBP_DragVisual_C"));
-    if (TSubclassOf<UDragDropVisual> DragVisualClass = DragVisualPath.TryLoadClass<UDragDropVisual>())
-    {
-        if (UDragDropVisual* Visual = CreateWidget<UDragDropVisual>(this, DragVisualClass))
-        {
-            Visual->SetItemIcon(DraggedItemInfo.ItemIcon);
-            Visual->SetQuantityText(DraggedQuantity);
-            DragDropOp->DefaultDragVisual = Visual;
-            DragDropOp->Pivot = EDragPivot::MouseDown;
+            ItemIcon->SetBrushFromTexture(CurrentItemInfo.ItemIcon);
+            ItemIcon->SetVisibility(ESlateVisibility::Visible);
         }
         else
         {
-            UE_LOG(LogTemp, Warning, TEXT("Failed to create drag visual widget"));
+            ItemIcon->SetVisibility(ESlateVisibility::Hidden);
         }
     }
-    else
-    {
-        UE_LOG(LogTemp, Warning, TEXT("Failed to load drag visual widget class"));
-    }
 
-    bIsInDragOperation = true;
-    OutOperation = DragDropOp;
-
-    if (!bSuppressWeightUpdate)
+    if (QuantityText)
     {
-        if (UMainInventoryWidget* MainInv = GetMainInventoryWidget())
+        if (ItemQuantity > 1)
         {
-            MainInv->RequestWeightUpdate();
-        }
-    }
-}
-
-void UInventorySlotWidget::NativeOnDragCancelled(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
-{
-    UInventoryDragDropOperation* DragDrop = Cast<UInventoryDragDropOperation>(InOperation);
-    if (!DragDrop)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("[%s] NativeOnDragCancelled -> invalid operation"), *GetName());
-        bIsInDragOperation = false;
-        return;
-    }
-
-    UE_LOG(LogTemp, Warning, TEXT("[%s] NativeOnDragCancelled -> valid operation"), *GetName());
-
-    FVector2D MousePos = InDragDropEvent.GetScreenSpacePosition();
-    if (UPanelWidget* ParentPanel = GetParent())
-    {
-        FGeometry PanelGeo = ParentPanel->GetCachedGeometry();
-        FVector2D PPos = PanelGeo.GetAbsolutePosition();
-        FVector2D PSize = PanelGeo.GetAbsoluteSize();
-
-        bool bOutside = (MousePos.X < PPos.X || MousePos.X > (PPos.X + PSize.X) ||
-                        MousePos.Y < PPos.Y || MousePos.Y > (PPos.Y + PSize.Y));
-
-        UE_LOG(LogTemp, Warning, TEXT("DragCancelled -> bOutside=%s, bag item? %s"),
-            bOutside ? TEXT("true") : TEXT("false"),
-            (DragDrop->DraggedItem.ItemType == EItemType::Bag) ? TEXT("Yes") : TEXT("No"));
-
-        if (!bOutside || DragDrop->DraggedItem.ItemType == EItemType::Bag)
-        {
-            UE_LOG(LogTemp, Warning, TEXT("Restoring to available slot if possible..."));
-            if (!FindAndRestoreToAvailableSlot())
-            {
-                UE_LOG(LogTemp, Warning, TEXT("No empty slot found -> revert."));
-                if (DragDrop->bSplitStack)
-                {
-                    ItemQuantity += DraggedQuantity;
-                    UpdateVisuals();
-                }
-                else
-                {
-                            SetItemDetails(DraggedItemInfo, DraggedQuantity);
-                }
-            }
+            QuantityText->SetText(FText::AsNumber(ItemQuantity));
+            QuantityText->SetVisibility(ESlateVisibility::Visible);
         }
         else
         {
-            // Show destroy confirmation
-            const FSoftClassPath DestroyWidgetPath(TEXT("/Game/Inventory/Widgets/WBP_Destroy.WBP_Destroy_C"));
-            if (TSubclassOf<UDestroyConfirmationWidget> DestroyWidgetClass = DestroyWidgetPath.TryLoadClass<UDestroyConfirmationWidget>())
-            {
-                if (UDestroyConfirmationWidget* DestroyWidget = CreateWidget<UDestroyConfirmationWidget>(GetOwningPlayer(), DestroyWidgetClass))
-                {
-                    UE_LOG(LogTemp, Warning, TEXT("Creating DestroyConfirmationWidget for item %s"), *DraggedItemInfo.ItemName.ToString());
-                    DestroyWidget->SetItemToDestroy(DraggedItemInfo, DraggedQuantity);
-                    DestroyWidget->OnDestroyConfirmed.AddDynamic(this, &UInventorySlotWidget::OnItemDestroyConfirmed);
-                    DestroyWidget->OnDestroyCancelled.AddDynamic(this, &UInventorySlotWidget::OnItemDestroyCancelled);
-                    DestroyWidget->AddToViewport();
-                    DestroyWidget->SetPositionInViewport(MousePos);
-                    return;
-                }
-            }
+            QuantityText->SetVisibility(ESlateVisibility::Hidden);
         }
     }
-
-    bIsInDragOperation = false;
-}
-
-bool UInventorySlotWidget::NativeOnDrop(
-    const FGeometry& InGeometry,
-    const FDragDropEvent& InDragDropEvent,
-    UDragDropOperation* InOperation
-)
-{
-    UInventoryDragDropOperation* DragDrop = Cast<UInventoryDragDropOperation>(InOperation);
-    if (!DragDrop)
-    {
-        return false;
-    }
-
-    UE_LOG(LogTemp, Warning, TEXT("NativeOnDrop: Dropping %s (x%d) from slot %s"),
-        *DragDrop->DraggedItem.ItemName.ToString(),
-        DragDrop->OriginalQuantity,
-        *DragDrop->SourceSlot->GetName());
-
-    // 1) Same slot => restore
-    if (DragDrop->SourceSlot == this)
-    {
-        SetItemDetails(DragDrop->DraggedItem, DragDrop->OriginalQuantity);
-        return true;
-    }
-
-    // 2) If dropping into a Bag slot
-    if (UBagComponent* TargetBagComp = GetParentBagComponent())
-    {
-        int32 TargetSlotIndex;
-        if (!TryGetParentBagSlotIndex(TargetSlotIndex))
-        {
-            UE_LOG(LogTemp, Warning, TEXT("NativeOnDrop -> Invalid target bag slot index"));
-            DragDrop->SourceSlot->FindAndRestoreToAvailableSlot();
-            return false;
-        }
-
-        // a) Try stacking if same item
-        if (ItemQuantity > 0 && CurrentItemInfo.ItemID == DragDrop->DraggedItem.ItemID)
-        {
-            int32 Space = CurrentItemInfo.MaxStackSize - ItemQuantity;
-            if (Space > 0)
-            {
-                int32 AmountToAdd = FMath::Min(Space, DragDrop->OriginalQuantity);
-                int32 NewTotal    = ItemQuantity + AmountToAdd;
-
-                // SERVER => real add
-                TargetBagComp->ServerTryAddItem(DragDrop->DraggedItem, NewTotal, TargetSlotIndex);
-
-                // If not split, remove from source
-                if (!DragDrop->bSplitStack)
-                {
-                    if (UBagComponent* SourceBagComp = DragDrop->SourceSlot->GetParentBagComponent())
-                    {
-                        int32 SourceIndex;
-                        if (DragDrop->SourceSlot->TryGetParentBagSlotIndex(SourceIndex))
-                        {
-                            SourceBagComp->ServerTryRemoveItem(SourceIndex);
-                        }
-                    }
-                    else
-                    {
-                        DragDrop->SourceSlot->ClearSlot();
-                    }
-                }
-
-                // Local UI update
-                ItemQuantity = NewTotal;
-                UpdateVisuals();
-
-                if (UMainInventoryWidget* MainInv = GetMainInventoryWidget())
-                {
-                    MainInv->RequestWeightUpdate();
-                }
-                return true;
-            }
-        }
-        // b) Otherwise place as new item
-        else
-        {
-            TargetBagComp->ServerTryAddItem(DragDrop->DraggedItem, DragDrop->OriginalQuantity, TargetSlotIndex);
-
-            if (!DragDrop->bSplitStack)
-            {
-                if (UBagComponent* SourceBagComp = DragDrop->SourceSlot->GetParentBagComponent())
-                {
-                    int32 SourceIndex;
-                    if (DragDrop->SourceSlot->TryGetParentBagSlotIndex(SourceIndex))
-                    {
-                        SourceBagComp->ServerTryRemoveItem(SourceIndex);
-                    }
-                }
-                else
-                {
-                    DragDrop->SourceSlot->ClearSlot();
-                }
-            }
-
-            SetItemDetails(DragDrop->DraggedItem, DragDrop->OriginalQuantity);
-            return true;
-        }
-
-        // If we get here => revert
-        DragDrop->SourceSlot->FindAndRestoreToAvailableSlot();
-        return false;
-    }
-
-    // 3) Main inventory => attempt stack
-    if (ItemQuantity > 0 && CurrentItemInfo.ItemID == DragDrop->DraggedItem.ItemID)
-    {
-        int32 Space = CurrentItemInfo.MaxStackSize - ItemQuantity;
-        if (Space > 0)
-        {
-            int32 ToAdd = FMath::Min(Space, DragDrop->OriginalQuantity);
-            ItemQuantity += ToAdd;
-            UpdateVisuals();
-
-            if (!DragDrop->bSplitStack)
-            {
-                DragDrop->SourceSlot->ClearSlot();
-            }
-
-            if (UMainInventoryWidget* MainInv = GetMainInventoryWidget())
-            {
-                MainInv->RequestWeightUpdate();
-            }
-            return true;
-        }
-    }
-
-    // 4) Otherwise => swap
-    FS_ItemInfo OldItem     = CurrentItemInfo;
-    int32       OldQuantity = ItemQuantity;
-
-    SetItemDetails(DragDrop->DraggedItem, DragDrop->OriginalQuantity);
-
-    if (!DragDrop->bSplitStack)
-    {
-        if (OldQuantity > 0)
-        {
-            DragDrop->SourceSlot->SetItemDetails(OldItem, OldQuantity);
-        }
-        else
-        {
-            DragDrop->SourceSlot->ClearSlot();
-        }
-    }
-
-    if (UMainInventoryWidget* MainInv = GetMainInventoryWidget())
-    {
-        MainInv->RequestWeightUpdate();
-    }
-
-    return true;
 }
 
 void UInventorySlotWidget::OpenBag()
@@ -528,33 +600,33 @@ void UInventorySlotWidget::OpenBag()
     }
 }
 
-void UInventorySlotWidget::UpdateVisuals()
+UMainInventoryWidget* UInventorySlotWidget::GetMainInventoryWidget() const
 {
-    if (ItemIcon)
+    // Climb up the hierarchy
+    UWidget* Current = const_cast<UInventorySlotWidget*>(this);
+    while (Current)
     {
-        if (CurrentItemInfo.ItemIcon)
+        if (UMainInventoryWidget* MIW = Cast<UMainInventoryWidget>(Current))
         {
-            ItemIcon->SetBrushFromTexture(CurrentItemInfo.ItemIcon);
-            ItemIcon->SetVisibility(ESlateVisibility::Visible);
+            return MIW;
         }
-        else
-        {
-            ItemIcon->SetVisibility(ESlateVisibility::Hidden);
-        }
+        Current = Current->GetParent();
     }
 
-    if (QuantityText)
+    // Fallback: search all
+    if (APlayerController* PC = GetOwningPlayer())
     {
-        if (ItemQuantity > 1)
+        TArray<UUserWidget*> Found;
+        UWidgetBlueprintLibrary::GetAllWidgetsOfClass(GetWorld(), Found, UMainInventoryWidget::StaticClass(), false);
+        for (UUserWidget* W : Found)
         {
-            QuantityText->SetText(FText::AsNumber(ItemQuantity));
-            QuantityText->SetVisibility(ESlateVisibility::Visible);
-        }
-        else
-        {
-            QuantityText->SetVisibility(ESlateVisibility::Hidden);
+            if (UMainInventoryWidget* MIW = Cast<UMainInventoryWidget>(W))
+            {
+                return MIW;
+            }
         }
     }
+    return nullptr;
 }
 
 bool UInventorySlotWidget::FindAndRestoreToAvailableSlot()
@@ -613,35 +685,6 @@ UInventorySlotWidget* UInventorySlotWidget::FindFirstAvailableSlot()
                         return SlotW;
                     }
                 }
-            }
-        }
-    }
-    return nullptr;
-}
-
-UMainInventoryWidget* UInventorySlotWidget::GetMainInventoryWidget() const
-{
-    // Climb up the hierarchy
-    UWidget* Current = const_cast<UInventorySlotWidget*>(this);
-    while (Current)
-    {
-        if (UMainInventoryWidget* MIW = Cast<UMainInventoryWidget>(Current))
-        {
-            return MIW;
-        }
-        Current = Current->GetParent();
-    }
-
-    // Fallback: search all
-    if (APlayerController* PC = GetOwningPlayer())
-    {
-        TArray<UUserWidget*> Found;
-        UWidgetBlueprintLibrary::GetAllWidgetsOfClass(GetWorld(), Found, UMainInventoryWidget::StaticClass(), false);
-        for (UUserWidget* W : Found)
-        {
-            if (UMainInventoryWidget* MIW = Cast<UMainInventoryWidget>(W))
-            {
-                return MIW;
             }
         }
     }

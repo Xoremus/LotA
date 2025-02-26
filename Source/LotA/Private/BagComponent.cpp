@@ -1,14 +1,15 @@
+// BagComponent.cpp
 #include "BagComponent.h"
 #include "LotA/LotACharacter.h"
 #include "Net/UnrealNetwork.h"
+#include "Engine/World.h"
+#include "TimerManager.h"
 
-UBagComponent::UBagComponent(const FObjectInitializer& ObjectInitializer)
-    : Super(ObjectInitializer)
+UBagComponent::UBagComponent(const FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer)
 {
     SetIsReplicatedByDefault(true);
     PrimaryComponentTick.bCanEverTick = false;
     bIsOpen = false;
-    bIsSaving = false;
     bIsClosing = false;
     bIsUpdatingWeight = false;
     bSuppressSave = false;
@@ -19,7 +20,6 @@ UBagComponent::UBagComponent(const FObjectInitializer& ObjectInitializer)
 void UBagComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
     Super::GetLifetimeReplicatedProps(OutLifetimeProps);
-
     DOREPLIFETIME(UBagComponent, BagState);
     DOREPLIFETIME(UBagComponent, bIsOpen);
 }
@@ -29,11 +29,20 @@ void UBagComponent::BeginPlay()
     Super::BeginPlay();
 }
 
+void UBagComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+    if (GetOwner() && GetOwner()->HasAuthority())
+    {
+        SaveState();
+    }
+    CleanupTimers();
+    Super::EndPlay(EndPlayReason);
+}
+
 bool UBagComponent::OpenBag()
 {
     if (!BagState.BagInfo.ItemID.IsValid())
     {
-        UE_LOG(LogTemp, Warning, TEXT("OpenBag: Invalid bag ID"));
         return false;
     }
 
@@ -42,7 +51,6 @@ bool UBagComponent::OpenBag()
         UE_LOG(LogTemp, Warning, TEXT("Opening bag %s"), *BagState.BagKey.ToString());
         bIsOpen = true;
 
-        // Notify all slots when opening to ensure visual sync
         for (int32 i = 0; i < BagState.SlotStates.Num(); ++i)
         {
             NotifySlotUpdated(i);
@@ -59,7 +67,13 @@ void UBagComponent::CloseBag()
         return;
 
     bIsClosing = true;
-    SaveState();
+    UE_LOG(LogTemp, Warning, TEXT("Closing bag %s"), *BagState.BagKey.ToString());
+
+    if (GetOwner() && GetOwner()->HasAuthority())
+    {
+        SaveState();
+    }
+
     bIsOpen = false;
     OnBagClosed.Broadcast(this);
     bIsClosing = false;
@@ -71,12 +85,16 @@ void UBagComponent::ForceClose()
         return;
 
     bIsClosing = true;
-    SaveState();
+    
+    if (GetOwner() && GetOwner()->HasAuthority())
+    {
+        SaveState();
+    }
+    
     bIsOpen = false;
     OnBagClosed.Broadcast(this);
     bIsClosing = false;
 
-    // Only remove component when explicitly forced to close
     bPendingRemoval = true;
     if (ALotACharacter* Character = Cast<ALotACharacter>(GetOwner()))
     {
@@ -86,7 +104,7 @@ void UBagComponent::ForceClose()
 
 void UBagComponent::InitializeBag(const FS_ItemInfo& BagItemInfo)
 {
-    if (!BagItemInfo.ItemID.IsValid())
+    if (!BagItemInfo.ItemID.IsValid() || !ValidateItemOperation(BagItemInfo))
         return;
 
     BagState.BagInfo = BagItemInfo;
@@ -97,128 +115,141 @@ void UBagComponent::InitializeBag(const FS_ItemInfo& BagItemInfo)
         BagState.SlotStates.SetNum(BagItemInfo.BagSlots);
     }
 
-    SaveState();
+    if (GetOwner() && GetOwner()->HasAuthority())
+    {
+        SaveState();
+    }
 }
 
-bool UBagComponent::CanAcceptItem(const FS_ItemInfo& Item, int32 TargetSlot) const
+bool UBagComponent::CanAcceptItem(const FS_ItemInfo& Item, int32 TargetSlot, FText& OutReason) const
 {
-    // Never accept bags in bags
-    if (Item.ItemType == EItemType::Bag)
+    if (!BagState.SlotStates.IsValidIndex(TargetSlot))
     {
-        UE_LOG(LogTemp, Warning, TEXT("CanAcceptItem: Cannot put bags inside bags"));
+        OutReason = NSLOCTEXT("BagComponent", "InvalidSlot", "Invalid slot index");
         return false;
     }
 
-    // Validate slot index
-    if (!BagState.SlotStates.IsValidIndex(TargetSlot))
+    if (Item.ItemType == EItemType::Bag)
     {
-        UE_LOG(LogTemp, Warning, TEXT("CanAcceptItem: Invalid slot index %d"), TargetSlot);
-        return false;
+        if (Item.ItemID == BagState.BagInfo.ItemID)
+        {
+            OutReason = NSLOCTEXT("BagComponent", "SelfNesting", "Cannot put a bag inside itself");
+            return false;
+        }
+
+        if (HasCircularReference(*FString::Printf(TEXT("Bag_%s"), *Item.ItemID.ToString())))
+        {
+            OutReason = NSLOCTEXT("BagComponent", "CircularRef", "Cannot create circular bag reference");
+            return false;
+        }
+
+        if (!IsBagEmpty())
+        {
+            OutReason = NSLOCTEXT("BagComponent", "NotEmpty", "Can only put bags into empty bags");
+            return false;
+        }
     }
 
     return true;
 }
 
-/** Local add item (no networking). */
 bool UBagComponent::TryAddItem(const FS_ItemInfo& Item, int32 Quantity, int32 TargetSlot)
 {
-    if (!CanAcceptItem(Item, TargetSlot))
+    FText FailReason;
+    if (!CanAcceptItem(Item, TargetSlot, FailReason) || !ValidateItemOperation(Item))
     {
+        OnBagOperationFailed.Broadcast(FailReason);
         return false;
     }
 
-    // Update slot state
     BagState.SlotStates[TargetSlot].ItemInfo = Item;
     BagState.SlotStates[TargetSlot].Quantity = Quantity;
 
-    UE_LOG(LogTemp, Warning, TEXT("TryAddItem: %s (x%d) -> slot %d"), 
-        *Item.ItemName.ToString(), Quantity, TargetSlot);
+    if (GetOwner() && GetOwner()->HasAuthority())
+    {
+        SaveState();
+    }
 
-    // Save state first, then notify
-    SaveState();
     NotifySlotUpdated(TargetSlot);
     RequestWeightUpdate();
 
     return true;
 }
 
-/** Local remove item (no networking). */
 bool UBagComponent::TryRemoveItem(int32 SlotIndex)
 {
     if (!BagState.SlotStates.IsValidIndex(SlotIndex))
-    {
-        UE_LOG(LogTemp, Warning, TEXT("TryRemoveItem: Invalid slot index %d"), SlotIndex);
         return false;
+
+    BagState.SlotStates[SlotIndex].Clear();
+
+    if (GetOwner() && GetOwner()->HasAuthority())
+    {
+        SaveState();
     }
 
-    UE_LOG(LogTemp, Warning, TEXT("TryRemoveItem: Removing from slot %d"), SlotIndex);
-    BagState.SlotStates[SlotIndex].Clear();
-    SaveState();
     NotifySlotUpdated(SlotIndex);
     RequestWeightUpdate();
     return true;
 }
 
-/** Load from a pre‐saved bag state. */
 void UBagComponent::LoadState(const FBagState& State)
 {
-    UE_LOG(LogTemp, Warning, TEXT("LoadState: Loading state for bag %s with %d slots"), 
-        *State.BagKey.ToString(), State.SlotStates.Num());
-
+    UE_LOG(LogTemp, Warning, TEXT("Loading state for bag %s"), *State.BagKey.ToString());
+    
     BagState = State;
 
-    // Log and notify for each slot
+    if (BagState.SlotStates.Num() != BagState.BagInfo.BagSlots)
+    {
+        BagState.SlotStates.SetNum(BagState.BagInfo.BagSlots);
+    }
+
+    if (GetOwner() && GetOwner()->HasAuthority())
+    {
+        MarkPackageDirty();
+    }
+
     for (int32 i = 0; i < BagState.SlotStates.Num(); ++i)
     {
-        if (!BagState.SlotStates[i].IsEmpty())
-        {
-            UE_LOG(LogTemp, Warning, TEXT("  Slot %d: %s (x%d)"), 
-                i, 
-                *BagState.SlotStates[i].ItemInfo.ItemName.ToString(),
-                BagState.SlotStates[i].Quantity);
-            NotifySlotUpdated(i);
-        }
+        NotifySlotUpdated(i);
     }
 
     RequestWeightUpdate();
 }
 
-/** Save current BagState to the character’s BagSaveData. */
 void UBagComponent::SaveState()
 {
-    // Skip if suppressed or already saving
-    if (bSuppressSave || bIsSaving || !BagState.BagKey.IsValid())
+    if (!GetOwner() || !GetOwner()->HasAuthority() || !BagState.BagKey.IsValid())
     {
-        UE_LOG(LogTemp, Verbose, TEXT("SaveState: Skipped for %s (suppress=%d, isSaving=%d)"), 
-            *BagState.BagKey.ToString(), bSuppressSave, bIsSaving);
         return;
     }
 
-    bIsSaving = true;
-
-    // Cancel pending
-    if (UWorld* World = GetWorld())
-    {
-        World->GetTimerManager().ClearTimer(SaveDebounceTimer);
-    }
-
-    UE_LOG(LogTemp, Warning, TEXT("SaveState: Saving %s with %d slots"), 
-        *BagState.BagKey.ToString(), BagState.SlotStates.Num());
-
     if (ALotACharacter* Character = Cast<ALotACharacter>(GetOwner()))
     {
-        Character->SaveBagState(this); // calls ALotACharacter::SaveBagState_Implementation on server
+        Character->SaveBagState(this);
+        MarkPackageDirty();
     }
+}
 
-    if (UWorld* World = GetWorld())
+void UBagComponent::ServerTryAddItem_Implementation(const FS_ItemInfo& Item, int32 Quantity, int32 TargetSlot)
+{
+    if (!GetOwner() || !GetOwner()->HasAuthority())
+        return;
+
+    if (TryAddItem(Item, Quantity, TargetSlot))
     {
-        World->GetTimerManager().SetTimer(SaveDebounceTimer, 
-            [this]() { bIsSaving = false; }, 
-            0.1f, false);
+        SaveState();
     }
-    else
+}
+
+void UBagComponent::ServerTryRemoveItem_Implementation(int32 SlotIndex)
+{
+    if (!GetOwner() || !GetOwner()->HasAuthority())
+        return;
+
+    if (TryRemoveItem(SlotIndex))
     {
-        bIsSaving = false;
+        SaveState();
     }
 }
 
@@ -235,7 +266,6 @@ void UBagComponent::RequestWeightUpdate()
 
 void UBagComponent::UpdateWeight()
 {
-    // If already updating, queue up again
     if (bIsUpdatingWeight)
     {
         bPendingWeightUpdate = true;
@@ -243,18 +273,10 @@ void UBagComponent::UpdateWeight()
     }
 
     bIsUpdatingWeight = true;
-    bSuppressSave = true;  // No SaveState calls while we recalc
+    bSuppressSave = true;
 
-    float NewWeight = BagState.BagInfo.Weight;
-    for (const FBagSlotState& Slot : BagState.SlotStates)
-    {
-        if (!Slot.IsEmpty())
-        {
-            NewWeight += Slot.ItemInfo.Weight * Slot.Quantity;
-        }
-    }
+    float NewWeight = GetRecursiveWeight();
 
-    // Only broadcast if changed
     if (!FMath::IsNearlyEqual(LastCalculatedWeight, NewWeight))
     {
         LastCalculatedWeight = NewWeight;
@@ -264,17 +286,64 @@ void UBagComponent::UpdateWeight()
     bSuppressSave = false;
     bIsUpdatingWeight = false;
 
-    // If pending re-update
     if (bPendingWeightUpdate)
     {
         bPendingWeightUpdate = false;
-        if (UWorld* World = GetWorld())
+        RequestWeightUpdate();
+    }
+}
+
+float UBagComponent::GetRecursiveWeight() const
+{
+    float TotalContentsWeight = 0.0f;
+    TSet<FName> VisitedKeys;
+    
+    for (const FBagSlotState& Slot : BagState.SlotStates)
+    {
+        if (!Slot.IsEmpty())
         {
-            World->GetTimerManager().SetTimer(WeightUpdateTimer,
-                [this]() { UpdateWeight(); },
-                0.1f, false);
+            if (Slot.ItemInfo.ItemType == EItemType::Bag)
+            {
+                FName NestedBagKey = *FString::Printf(TEXT("Bag_%s"), *Slot.ItemInfo.ItemID.ToString());
+                if (!VisitedKeys.Contains(NestedBagKey))
+                {
+                    VisitedKeys.Add(NestedBagKey);
+                    if (ALotACharacter* Character = Cast<ALotACharacter>(GetOwner()))
+                    {
+                        if (UBagComponent* NestedBag = Character->FindBagByKey(NestedBagKey))
+                        {
+                            TotalContentsWeight += NestedBag->GetRecursiveWeight();
+                        }
+                    }
+                }
+            }
+            else
+            {
+                TotalContentsWeight += (Slot.ItemInfo.Weight * Slot.Quantity);
+            }
         }
     }
+
+    return BagState.BagInfo.Weight + TotalContentsWeight;
+}
+
+bool UBagComponent::HasCircularReference(const FName& BagKey) const
+{
+    if (BagKey == BagState.BagKey)
+        return true;
+
+    TSet<FName> VisitedKeys;
+    return CheckCircularReference(BagKey, VisitedKeys);
+}
+
+bool UBagComponent::IsBagEmpty() const
+{
+    for (const FBagSlotState& Slot : BagState.SlotStates)
+    {
+        if (!Slot.IsEmpty())
+            return false;
+    }
+    return true;
 }
 
 void UBagComponent::NotifySlotUpdated(int32 SlotIndex)
@@ -287,45 +356,63 @@ void UBagComponent::NotifySlotUpdated(int32 SlotIndex)
     }
 }
 
+void UBagComponent::OnRep_BagState()
+{
+    for (int32 i = 0; i < BagState.SlotStates.Num(); ++i)
+    {
+        NotifySlotUpdated(i);
+    }
+    RequestWeightUpdate();
+}
+
 void UBagComponent::OnRep_IsOpen()
 {
     if (bIsOpen)
-    {
         OnBagOpened.Broadcast(this);
-    }
     else
-    {
         OnBagClosed.Broadcast(this);
-    }
 }
 
-/* ============================
- *  NEW SERVER FUNCTIONS
- * ============================
-*/
-
-/** Attempt to add item on the server, ensuring no nested bags. */
-void UBagComponent::ServerTryAddItem_Implementation(const FS_ItemInfo& Item, int32 Quantity, int32 TargetSlot)
+void UBagComponent::CleanupTimers()
 {
-    UE_LOG(LogTemp, Warning, TEXT("SERVER: ServerTryAddItem_Implementation => %s x%d, slot %d"), 
-        *Item.ItemName.ToString(), Quantity, TargetSlot);
-
-    // Bag-in-bag check
-    if (Item.ItemType == EItemType::Bag)
+    if (UWorld* World = GetWorld())
     {
-        UE_LOG(LogTemp, Warning, TEXT("SERVER: Rejected bag in bag!"));
-        return;
+        World->GetTimerManager().ClearTimer(SaveDebounceTimer);
+        World->GetTimerManager().ClearTimer(WeightUpdateTimer);
     }
-
-    // For bag-in-itself check (optional)
-    // e.g. if (GenerateBagKey(Item) == BagState.BagKey)...
-
-    // Actually do the local add
-    TryAddItem(Item, Quantity, TargetSlot);
 }
 
-void UBagComponent::ServerTryRemoveItem_Implementation(int32 SlotIndex)
+bool UBagComponent::CheckCircularReference(const FName& TargetBagKey, TSet<FName>& VisitedKeys) const
 {
-    UE_LOG(LogTemp, Warning, TEXT("SERVER: ServerTryRemoveItem_Implementation => slot %d"), SlotIndex);
-    TryRemoveItem(SlotIndex);
+    if (VisitedKeys.Contains(BagState.BagKey))
+        return false;
+
+    VisitedKeys.Add(BagState.BagKey);
+
+    for (const FBagSlotState& Slot : BagState.SlotStates)
+    {
+        if (!Slot.IsEmpty() && Slot.ItemInfo.ItemType == EItemType::Bag)
+        {
+            FName NestedBagKey = *FString::Printf(TEXT("Bag_%s"), *Slot.ItemInfo.ItemID.ToString());
+            
+            if (NestedBagKey == TargetBagKey)
+                return true;
+
+            if (ALotACharacter* Character = Cast<ALotACharacter>(GetOwner()))
+            {
+                if (UBagComponent* NestedBag = Character->FindBagByKey(NestedBagKey))
+                {
+                    if (NestedBag->CheckCircularReference(TargetBagKey, VisitedKeys))
+                        return true;
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
+bool UBagComponent::ValidateItemOperation(const FS_ItemInfo& Item) const
+{
+    return Item.ItemID.IsValid() && Item.MaxStackSize > 0;
 }

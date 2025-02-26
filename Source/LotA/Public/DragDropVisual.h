@@ -1,12 +1,11 @@
-// DragDropVisual.h
 #pragma once
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "Components/Image.h"
+#include "Components/TextBlock.h"
+#include "Engine/Texture2D.h"
 #include "DragDropVisual.generated.h"
-
-class UImage;
-class UTextBlock;
 
 UCLASS()
 class LOTA_API UDragDropVisual : public UUserWidget

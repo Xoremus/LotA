@@ -22,7 +22,7 @@ public:
 
 protected:
 	// Widget class for notifications
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "UI", meta = (AllowPrivateAccess = "true"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "UI", meta = (AllowPrivateAccess = "true",  DisplayName = "Notification Widget Class"))
 	TSubclassOf<class UPickupNotificationWidget> NotificationWidgetClass;
 
 	UPROPERTY()
@@ -39,6 +39,10 @@ protected:
 private:
 	/** Update positions of all active notifications */
 	void UpdateNotificationPositions();
+
+	/** Called when a notification finishes fading out */
+	UFUNCTION()
+	void OnNotificationFadeComplete(UPickupNotificationWidget* Widget);
 
 	/** Log the current state for debugging */
 	void LogDebugState() const;

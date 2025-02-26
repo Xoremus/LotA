@@ -2,6 +2,7 @@
 
 #include "LotAGameMode.h"
 #include "LotACharacter.h"
+#include "LotAPlayerState.h"
 #include "UObject/ConstructorHelpers.h"
 
 ALotAGameMode::ALotAGameMode()
@@ -11,5 +12,6 @@ ALotAGameMode::ALotAGameMode()
 	if (PlayerPawnBPClass.Class != NULL)
 	{
 		DefaultPawnClass = PlayerPawnBPClass.Class;
+		PlayerStateClass = ALotAPlayerState::StaticClass();
 	}
 }

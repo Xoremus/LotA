@@ -1,9 +1,8 @@
 // LotAPlayerController.cpp
 #include "LotAPlayerController.h"
+#include "LotA/LotACharacter.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
-#include "Blueprint/UserWidget.h"
-#include "LotA/LotACharacter.h"
 
 ALotAPlayerController::ALotAPlayerController()
 {
@@ -15,23 +14,10 @@ void ALotAPlayerController::BeginPlay()
 {
     Super::BeginPlay();
 
-    // Create and Add Main Inventory Widget
-    if (MainInventoryWidgetClass)
+    // Only create UI for local player
+    if (IsLocalPlayerController())
     {
-        MainInventoryWidget = CreateWidget<UMainInventoryWidget>(this, MainInventoryWidgetClass);
-        if (MainInventoryWidget)
-        {
-            MainInventoryWidget->AddToViewport();
-            MainInventoryWidget->SetVisibility(ESlateVisibility::Hidden);
-
-            // Set the reference on the character
-            if (ALotACharacter* LotAChar = Cast<ALotACharacter>(GetPawn()))
-            {
-                LotAChar->SetMainInventoryWidget(MainInventoryWidget);
-            }
-
-            UE_LOG(LogTemp, Warning, TEXT("MainInventoryWidget created and added to viewport"));
-        }
+        CreatePlayerUI();
     }
 
     // Add Input Mapping Context
@@ -47,29 +33,52 @@ void ALotAPlayerController::BeginPlay()
     }
 }
 
+void ALotAPlayerController::CreatePlayerUI()
+{
+    // Create Main Inventory Widget
+    if (MainInventoryWidgetClass)
+    {
+        MainInventoryWidget = CreateWidget<UMainInventoryWidget>(this, MainInventoryWidgetClass);
+        if (MainInventoryWidget)
+        {
+            MainInventoryWidget->AddToViewport();
+            MainInventoryWidget->SetVisibility(ESlateVisibility::Hidden);
+
+            // Set the reference on the character
+            if (ALotACharacter* LotAChar = Cast<ALotACharacter>(GetPawn()))
+            {
+                LotAChar->SetMainInventoryWidget(MainInventoryWidget);
+            }
+        }
+    }
+
+    // Create Chat Widget
+    if (ChatWidgetClass)
+    {
+        ChatWidget = CreateWidget<UChatWidget>(this, ChatWidgetClass);
+        if (ChatWidget)
+        {
+            ChatWidget->AddToViewport();
+        }
+    }
+}
+
 void ALotAPlayerController::SetupInputComponent()
 {
     Super::SetupInputComponent();
 
-    UE_LOG(LogTemp, Warning, TEXT("SetupInputComponent called"));
-
     if (UEnhancedInputComponent* EnhancedInput = Cast<UEnhancedInputComponent>(InputComponent))
     {
-        UE_LOG(LogTemp, Warning, TEXT("EnhancedInputComponent found"));
-        
         if (IA_Inventory)
         {
-            UE_LOG(LogTemp, Warning, TEXT("IA_Inventory is valid"));
             EnhancedInput->BindAction(IA_Inventory, ETriggerEvent::Started, this, &ALotAPlayerController::ToggleMainInventory);
         }
-        else
+
+        if (IA_RightMouse)
         {
-            UE_LOG(LogTemp, Error, TEXT("IA_Inventory is null"));
+            EnhancedInput->BindAction(IA_RightMouse, ETriggerEvent::Started, this, &ALotAPlayerController::OnRightMousePressed);
+            EnhancedInput->BindAction(IA_RightMouse, ETriggerEvent::Completed, this, &ALotAPlayerController::OnRightMouseReleased);
         }
-    }
-    else
-    {
-        UE_LOG(LogTemp, Error, TEXT("EnhancedInputComponent not found"));
     }
 }
 
@@ -83,7 +92,7 @@ void ALotAPlayerController::ToggleMainInventory()
         SetInputMode(FInputModeGameOnly());
         bShowMouseCursor = false;
 
-        // Close all open bags when closing inventory
+        // Close all open bags
         TArray<UBagComponent*> BagsToClose = OpenBags;
         for (UBagComponent* Bag : BagsToClose)
         {
@@ -106,7 +115,6 @@ void ALotAPlayerController::ToggleMainInventory()
 
 void ALotAPlayerController::OpenAllBags()
 {
-    // Get all bag components from the player's inventory
     if (APawn* PlayerPawn = GetPawn())
     {
         TArray<UBagComponent*> AllBags;
@@ -136,4 +144,16 @@ void ALotAPlayerController::OnBagClosed(UBagComponent* Bag)
     {
         OpenBags.Remove(Bag);
     }
+}
+
+void ALotAPlayerController::OnRightMousePressed()
+{
+    bIsRightMouseDown = true;
+    SetShowMouseCursor(false);
+}
+
+void ALotAPlayerController::OnRightMouseReleased()
+{
+    bIsRightMouseDown = false;
+    SetShowMouseCursor(true);
 }

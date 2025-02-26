@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameModeBase.h"
+#include "LotAPlayerState.h"
 #include "LotAGameMode.generated.h"
 
 UCLASS(minimalapi)

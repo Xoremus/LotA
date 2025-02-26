@@ -2,15 +2,20 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "DraggableWindowBase.h"
-#include "Components/UniformGridPanel.h"
-#include "Components/Button.h"
+#include "DraggableWindowBase.h"  // Changed from LotA/DraggableWindowBase.h
+#include "S_ItemInfo.h"           // Changed from LotA/S_ItemInfo.h
 #include "Components/TextBlock.h"
-#include "S_ItemInfo.h"
-#include "BagComponent.h"
+#include "Components/Button.h"
+#include "Components/UniformGridPanel.h"
 #include "BagWidget.generated.h"
 
+// Forward declarations
+class UTextBlock;
+class UButton;
+class UUniformGridPanel;
 class UInventorySlotWidget;
+class UBagComponent;
+struct FS_ItemInfo;
 
 UCLASS()
 class LOTA_API UBagWidget : public UDraggableWindowBase
@@ -50,6 +55,13 @@ protected:
 
 	UFUNCTION()
 	void OnBagSlotUpdated(int32 SlotIndex, const FS_ItemInfo& ItemInfo, int32 Quantity);
+
+	UFUNCTION()
+	void OnBagOperationFailed(const FText& FailureReason);
+
+	UFUNCTION(BlueprintNativeEvent, Category = "Bag|Feedback")
+	void OnOperationFailedBP(const FText& FailureReason);
+	virtual void OnOperationFailedBP_Implementation(const FText& FailureReason);
 
 private:
 	void CreateBagSlots();

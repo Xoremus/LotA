@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 using UnrealBuildTool;
+using System.IO;
 
 public class LotA : ModuleRules
 {
@@ -20,7 +21,11 @@ public class LotA : ModuleRules
 			"JsonUtilities", 
 			"Slate", 
 			"SlateCore",
-			"UMG" // Added for UMG support
+			"UMG",
+			"ApplicationCore",
+			"AIModule",
+			"GameplayTasks",
+			"NavigationSystem"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]
@@ -28,7 +33,17 @@ public class LotA : ModuleRules
 			// Add private modules here if needed
 		});
 
-		// Optional: Add include paths if required
+		// Explicitly add Slate include paths
+		PublicIncludePaths.AddRange(new string[]
+		{
+			Path.Combine(EngineDirectory, "Source", "Runtime", "Slate", "Public"),
+			Path.Combine(EngineDirectory, "Source", "Runtime", "SlateCore", "Public"),
+			Path.Combine(EngineDirectory, "Source", "Runtime", "ApplicationCore", "Public")
+		});
+
+		PublicIncludePaths.Add(Path.Combine(EngineDirectory, "Source", "Runtime", "UMG", "Public"));
+        
+		// Add module include paths
 		PublicIncludePaths.AddRange(new string[] { "LotA/Public" });
 		PrivateIncludePaths.AddRange(new string[] { "LotA/Private" });
 	}

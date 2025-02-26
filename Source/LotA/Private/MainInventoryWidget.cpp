@@ -3,6 +3,7 @@
 #include "GameFramework/PlayerController.h"
 #include "LotA/LotACharacter.h"
 #include "InventorySlotWidget.h"
+#include "BagComponent.h"
 
 void UMainInventoryWidget::NativeConstruct()
 {
@@ -44,11 +45,21 @@ void UMainInventoryWidget::NativeConstruct()
 
 void UMainInventoryWidget::OnDoneButtonClicked()
 {
+    // NEW: Save all bags before closing
+    if (ALotACharacter* Character = Cast<ALotACharacter>(GetOwningPlayerPawn()))
+    {
+        Character->SaveAllBagsAndClose();
+    }
     SetGameOnlyMode();
 }
 
 void UMainInventoryWidget::OnExitButtonClicked()
 {
+    // NEW: Save all bags before closing
+    if (ALotACharacter* Character = Cast<ALotACharacter>(GetOwningPlayerPawn()))
+    {
+        Character->SaveAllBagsAndClose();
+    }
     SetGameOnlyMode();
 }
 
@@ -79,6 +90,35 @@ void UMainInventoryWidget::RequestWeightUpdate()
             },
             0.1f, false);
     }
+}
+
+// NEW: Added to validate bag operations
+bool UMainInventoryWidget::ValidateBagOperation(const FS_ItemInfo& BagInfo, FText& OutErrorMessage) const
+{
+    if (BagInfo.ItemType != EItemType::Bag)
+    {
+        OutErrorMessage = NSLOCTEXT("Inventory", "NotABag", "Item is not a bag");
+        return false;
+    }
+
+    // Check if we already have this bag open
+    TSet<FName> ActiveBags = GetActiveBagKeys();
+    FName BagKey = *FString::Printf(TEXT("Bag_%s"), *BagInfo.ItemID.ToString());
+    
+    if (ActiveBags.Contains(BagKey))
+    {
+        OutErrorMessage = NSLOCTEXT("Inventory", "BagAlreadyOpen", "This bag is already open");
+        return false;
+    }
+
+    // Get character for additional validation
+    if (ALotACharacter* Character = Cast<ALotACharacter>(GetOwningPlayerPawn()))
+    {
+        return Character->ValidateBagOperation(BagInfo, OutErrorMessage);
+    }
+
+    OutErrorMessage = NSLOCTEXT("Inventory", "ValidationFailed", "Failed to validate bag operation");
+    return false;
 }
 
 void UMainInventoryWidget::UpdateInventoryWeight()
@@ -150,6 +190,21 @@ float UMainInventoryWidget::CalculateTotalInventoryWeight() const
     }
 
     return TotalWeight;
+}
+
+// NEW: Get active bag keys
+TSet<FName> UMainInventoryWidget::GetActiveBagKeys() const
+{
+    TSet<FName> ActiveBags;
+    
+    if (ALotACharacter* Character = Cast<ALotACharacter>(GetOwningPlayerPawn()))
+    {
+        TArray<FName> BagKeys;
+        Character->GetAllActiveBagKeys(BagKeys);
+        ActiveBags.Append(BagKeys);
+    }
+    
+    return ActiveBags;
 }
 
 void UMainInventoryWidget::AddTestItems()

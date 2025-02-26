@@ -1,9 +1,12 @@
 // BagWidget.cpp
 #include "BagWidget.h"
-#include "Components/UniformGridSlot.h"
 #include "Components/TextBlock.h"
-#include "LotA/LotACharacter.h"
+#include "Components/Button.h"
+#include "Components/UniformGridPanel.h"
+#include "Components/UniformGridSlot.h"
+#include "BagComponent.h"
 #include "InventorySlotWidget.h"
+#include "S_ItemInfo.h"
 
 UBagWidget::UBagWidget(const FObjectInitializer& ObjectInitializer)
     : Super(ObjectInitializer)
@@ -24,9 +27,8 @@ void UBagWidget::NativeDestruct()
 {
     if (OwningBagComponent)
     {
-        // Save state before destroying
         OwningBagComponent->SaveState();
-        OwningBagComponent->CloseBag();  // Don't force close, just regular close
+        OwningBagComponent->CloseBag();
         OwningBagComponent->OnSlotUpdated.RemoveAll(this);
         OwningBagComponent = nullptr;
     }
@@ -78,19 +80,13 @@ void UBagWidget::InitializeBag(const FS_ItemInfo& BagInfo)
 
     CreateBagSlots();
 
-    // Load existing state from bag component
+    // Load existing state
     const TArray<FBagSlotState>& CurrentStates = OwningBagComponent->GetSlotStates();
-    UE_LOG(LogTemp, Warning, TEXT("Loading %d states from bag component"), CurrentStates.Num());
-
     for (int32 i = 0; i < CurrentStates.Num() && i < BagSlots.Num(); ++i)
     {
         const FBagSlotState& SlotState = CurrentStates[i];
         if (!SlotState.IsEmpty())
         {
-            UE_LOG(LogTemp, Warning, TEXT("  Restoring slot %d: %s (x%d)"), 
-                i, 
-                *SlotState.ItemInfo.ItemName.ToString(),
-                SlotState.Quantity);
             BagSlots[i]->SetItemDetails(SlotState.ItemInfo, SlotState.Quantity);
         }
     }
@@ -105,9 +101,6 @@ void UBagWidget::CreateBagSlots()
     int32 Columns = FMath::CeilToInt(FMath::Sqrt(static_cast<float>(TotalSlots)));
     int32 Rows = FMath::CeilToInt(static_cast<float>(TotalSlots) / Columns);
 
-    UE_LOG(LogTemp, Warning, TEXT("CreateBagSlots -> Creating %dx%d grid for %d slots"), 
-        Rows, Columns, TotalSlots);
-
     const FSoftClassPath SlotClassPath(TEXT("/Game/Inventory/Widgets/WBP_InventorySlot.WBP_InventorySlot_C"));
     if (UClass* SlotClass = SlotClassPath.TryLoadClass<UInventorySlotWidget>())
     {
@@ -115,8 +108,7 @@ void UBagWidget::CreateBagSlots()
         {
             for (int32 c = 0; c < Columns && BagSlots.Num() < TotalSlots; ++c)
             {
-                UInventorySlotWidget* NewSlot = CreateWidget<UInventorySlotWidget>(this, SlotClass);
-                if (NewSlot)
+                if (UInventorySlotWidget* NewSlot = CreateWidget<UInventorySlotWidget>(this, SlotClass))
                 {
                     if (UUniformGridSlot* GridSlot = Cast<UUniformGridSlot>(InventoryGrid->AddChild(NewSlot)))
                     {
@@ -142,11 +134,6 @@ void UBagWidget::OnCloseButtonClicked()
 
 void UBagWidget::OnBagSlotUpdated(int32 SlotIndex, const FS_ItemInfo& ItemInfo, int32 Quantity)
 {
-    UE_LOG(LogTemp, Warning, TEXT("OnBagSlotUpdated: Slot %d -> %s (x%d)"), 
-        SlotIndex, 
-        *ItemInfo.ItemName.ToString(), 
-        Quantity);
-
     if (BagSlots.IsValidIndex(SlotIndex))
     {
         if (Quantity > 0)
@@ -158,11 +145,24 @@ void UBagWidget::OnBagSlotUpdated(int32 SlotIndex, const FS_ItemInfo& ItemInfo, 
             BagSlots[SlotIndex]->ClearSlot();
         }
 
-        // Request weight update whenever slot changes
         if (OwningBagComponent)
         {
             OwningBagComponent->RequestWeightUpdate();
         }
+    }
+}
+
+void UBagWidget::OnBagOperationFailed(const FText& FailureReason)
+{
+    UE_LOG(LogTemp, Warning, TEXT("Bag operation failed: %s"), *FailureReason.ToString());
+    OnOperationFailedBP(FailureReason);
+}
+
+void UBagWidget::OnOperationFailedBP_Implementation(const FText& FailureReason)
+{
+    if (WindowTitle)
+    {
+        WindowTitle->SetText(FailureReason);
     }
 }
 

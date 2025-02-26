@@ -48,6 +48,9 @@ protected:
     virtual void NativeOnDragDetected(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent, UDragDropOperation*& OutOperation) override;
     virtual bool NativeOnDrop(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation) override;
     virtual void NativeOnDragCancelled(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation) override;
+    // NEW: Added for drag hover feedback
+    virtual void NativeOnDragEnter(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation) override;
+    virtual void NativeOnDragLeave(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation) override;
 
     UPROPERTY(meta = (BindWidget))
     UImage* ItemIcon;
@@ -61,12 +64,20 @@ private:
     UMainInventoryWidget* GetMainInventoryWidget() const;
     bool FindAndRestoreToAvailableSlot();
     UInventorySlotWidget* FindFirstAvailableSlot();
+    
+    // NEW: Added validation helpers
+    bool ValidateDropOperation(UDragDropOperation* Operation, FText& OutErrorMessage) const;
+    bool CanAcceptDraggedItem(const FS_ItemInfo& DraggedItem, FText& OutErrorMessage) const;
 
     UFUNCTION()
     void OnItemDestroyConfirmed(const FS_ItemInfo& itemInfo);
 
     UFUNCTION()
     void OnItemDestroyCancelled();
+
+    // NEW: Added to handle bag operation failures
+    UFUNCTION()
+    void OnBagOperationFailed(const FText& FailureReason);
 
     UPROPERTY()
     FS_ItemInfo CurrentItemInfo;
@@ -78,4 +89,8 @@ private:
     bool bSuppressWeightUpdate;
     FS_ItemInfo DraggedItemInfo;
     int32 DraggedQuantity;
+
+    // NEW: Added for visual feedback
+    void UpdateDragVisualFeedback(bool bIsValidDrop);
+    void ResetVisualFeedback();
 };

@@ -14,52 +14,43 @@
 
 ALotACharacter::ALotACharacter()
 {
-    // Set size for collision capsule
     GetCapsuleComponent()->InitCapsuleSize(42.f, 96.f);
 
-    // Movement settings
     BaseWalkSpeed = 600.f;
     GetCharacterMovement()->MaxWalkSpeed = BaseWalkSpeed;
 
-    // Configure character rotation
-    bUseControllerRotationYaw = false;    // Don't rotate with controller
+    bUseControllerRotationYaw = false;    
     bUseControllerRotationPitch = false;
     bUseControllerRotationRoll = false;
 
-    // Configure character movement
-    GetCharacterMovement()->bOrientRotationToMovement = true;     // Rotate character to movement direction
-    GetCharacterMovement()->RotationRate = FRotator(0.0f, 500.0f, 0.0f); // Smooth rotation speed
+    GetCharacterMovement()->bOrientRotationToMovement = true;     
+    GetCharacterMovement()->RotationRate = FRotator(0.0f, 500.0f, 0.0f);
     GetCharacterMovement()->bConstrainToPlane = true;
     GetCharacterMovement()->bSnapToPlaneAtStart = true;
 
-    // Create camera boom
     CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
     CameraBoom->SetupAttachment(RootComponent);
-    CameraBoom->TargetArmLength = 400.0f;          // Further back for better view
-    CameraBoom->bUsePawnControlRotation = true;    // Rotate arm based on controller
-    CameraBoom->bDoCollisionTest = true;           // Camera boom collision
+    CameraBoom->TargetArmLength = 400.0f;
+    CameraBoom->bUsePawnControlRotation = true;
+    CameraBoom->bDoCollisionTest = true;
     CameraBoom->ProbeSize = 12.0f;
-    CameraBoom->bEnableCameraLag = true;          // Smooth camera movement
+    CameraBoom->bEnableCameraLag = true;
     CameraBoom->CameraLagSpeed = 15.0f;
-    CameraBoom->bEnableCameraRotationLag = false; // Disable rotation lag for responsive camera
-    CameraBoom->bInheritPitch = true;             // Allow pitch inheritance
-    CameraBoom->bInheritYaw = true;               // Allow yaw inheritance
-    CameraBoom->bInheritRoll = false;             // No roll needed for MMO-style
+    CameraBoom->bEnableCameraRotationLag = false;
+    CameraBoom->bInheritPitch = true;
+    CameraBoom->bInheritYaw = true;
+    CameraBoom->bInheritRoll = false;
 
-    // Create follow camera
     FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
     FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
-    FollowCamera->bUsePawnControlRotation = false; // Camera doesn't rotate relative to arm
+    FollowCamera->bUsePawnControlRotation = false;
 
-    // Create components
     StatsComponent = CreateDefaultSubobject<UCharacterStatsComponent>(TEXT("StatsComponent"));
     InteractionComponent = CreateDefaultSubobject<UInteractionComponent>(TEXT("InteractionComponent"));
 
-    // Default camera pitch limits
     CameraPitchMin = -80.0f;
     CameraPitchMax = 0.0f;
 
-    // Initialize movement state
     bIsAutoRunning = false;
     bIsRightMouseDown = false;
 }
@@ -68,7 +59,6 @@ void ALotACharacter::BeginPlay()
 {
     Super::BeginPlay();
 
-    // Add Input Mapping Context
     if (APlayerController* PlayerController = Cast<APlayerController>(Controller))
     {
         if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))
@@ -77,8 +67,8 @@ void ALotACharacter::BeginPlay()
         }
     }
 
-    // Restore saved bag states
     RestoreAllBagStates();
+    ValidateBagHierarchy();  // NEW: Validate hierarchy after restore
 }
 
 void ALotACharacter::Tick(float DeltaTime)
@@ -95,17 +85,11 @@ void ALotACharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
 {
     if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerInputComponent))
     {
-        // Movement
         EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ALotACharacter::Move);
-
-        // Looking
         EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &ALotACharacter::Look);
-
-        // Jumping
         EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Started, this, &ACharacter::Jump);
         EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Completed, this, &ACharacter::StopJumping);
 
-        // Interaction - bind to InteractionComponent
         if (IA_Interact)
         {
             UE_LOG(LogTemp, Warning, TEXT("Binding Interact action"));
@@ -113,7 +97,6 @@ void ALotACharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
                 InteractionComponent, &UInteractionComponent::TryInteract);
         }
 
-        // Camera control
         if (IA_RightMouse)
         {
             EnhancedInputComponent->BindAction(IA_RightMouse, ETriggerEvent::Started, this, &ALotACharacter::OnRightMousePressed);
@@ -135,19 +118,15 @@ void ALotACharacter::Move(const FInputActionValue& Value)
 
     const FVector2D MovementVector = Value.Get<FVector2D>();
     
-    // Get camera forward direction (ignoring pitch)
     const FRotator Rotation = Controller->GetControlRotation();
     const FRotator YawRotation(0, Rotation.Yaw, 0);
     
-    // Get forward and right vectors
     const FVector ForwardDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
     const FVector RightDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
 
-    // Add movement inputs
     AddMovementInput(ForwardDirection, MovementVector.Y);
     AddMovementInput(RightDirection, MovementVector.X);
 
-    // Cancel auto-run if moving manually
     if (bIsAutoRunning && !FMath::IsNearlyZero(MovementVector.Size()))
     {
         bIsAutoRunning = false;
@@ -165,9 +144,45 @@ void ALotACharacter::Look(const FInputActionValue& Value)
     AddControllerPitchInput(LookAxisVector.Y);
 }
 
+void ALotACharacter::ValidateBagHierarchy()
+{
+    TArray<FName> BagKeysToRemove;
+    
+    // Check each active bag
+    for (const auto& Pair : ActiveBagComponents)
+    {
+        const FName& BagKey = Pair.Key;
+        UBagComponent* BagComp = Pair.Value;
+        
+        if (!BagComp || !IsValid(BagComp))
+        {
+            BagKeysToRemove.Add(BagKey);
+            continue;
+        }
+
+        // Check for circular references
+        TSet<FName> VisitedKeys;
+        if (CheckCircularReference(BagKey, BagKey, VisitedKeys))
+        {
+            UE_LOG(LogTemp, Warning, TEXT("Found circular reference in bag: %s"), *BagKey.ToString());
+            BagKeysToRemove.Add(BagKey);
+        }
+    }
+
+    // Remove any invalid bags
+    for (const FName& KeyToRemove : BagKeysToRemove)
+    {
+        if (UBagComponent* BagToRemove = FindBagComponent(KeyToRemove))
+        {
+            UE_LOG(LogTemp, Warning, TEXT("Removing invalid bag: %s"), *KeyToRemove.ToString());
+            BagToRemove->ForceClose();
+            RemoveBagComponent(BagToRemove);
+        }
+    }
+}
+
 void ALotACharacter::OnInteract()
 {
-    // This is kept for compatibility but delegates to InteractionComponent
     if (InteractionComponent)
     {
         InteractionComponent->TryInteract();
@@ -260,24 +275,45 @@ void ALotACharacter::SaveBagState_Implementation(UBagComponent* BagComp)
         return;
 
     FName BagKey = GenerateBagKey(BagComp->GetBagInfo());
+    
+    // Create new state
     FBagState NewState;
     NewState.BagKey = BagKey;
     NewState.BagInfo = BagComp->GetBagInfo();
     NewState.SlotStates = BagComp->GetSlotStates();
 
-    int32 Existing = BagSaveData.SavedBags.IndexOfByPredicate([BagKey](const FBagState& St){
-        return St.BagKey == BagKey;
+    // Log current state
+    UE_LOG(LogTemp, Warning, TEXT("Saving bag state: %s"), *BagKey.ToString());
+    for (int32 i = 0; i < NewState.SlotStates.Num(); ++i)
+    {
+        if (!NewState.SlotStates[i].IsEmpty())
+        {
+            UE_LOG(LogTemp, Warning, TEXT("  Slot %d: %s x%d"), 
+                i, 
+                *NewState.SlotStates[i].ItemInfo.ItemName.ToString(),
+                NewState.SlotStates[i].Quantity);
+        }
+    }
+
+    // Find and update or add
+    int32 ExistingIndex = BagSaveData.SavedBags.IndexOfByPredicate([BagKey](const FBagState& State){
+        return State.BagKey == BagKey;
     });
 
-    if (Existing != INDEX_NONE)
+    if (ExistingIndex != INDEX_NONE)
     {
-        BagSaveData.SavedBags[Existing] = NewState;
+        BagSaveData.SavedBags[ExistingIndex] = NewState;
         UE_LOG(LogTemp, Warning, TEXT("SaveBagState: Updated => %s"), *BagKey.ToString());
     }
     else
     {
         BagSaveData.SavedBags.Add(NewState);
         UE_LOG(LogTemp, Warning, TEXT("SaveBagState: Added => %s"), *BagKey.ToString());
+    }
+
+    if (HasAuthority())
+    {
+        MarkPackageDirty();
     }
 }
 
@@ -295,6 +331,19 @@ bool ALotACharacter::GetSavedBagState(const FName& BagKey, FBagSavedState& OutSt
         const FBagState& S = BagSaveData.SavedBags[FoundIndex];
         OutState.BagInfo = S.BagInfo;
         OutState.SlotStates = S.SlotStates;
+        
+        // Log what we're loading
+        UE_LOG(LogTemp, Warning, TEXT("Loading bag state: %s"), *BagKey.ToString());
+        for (int32 i = 0; i < OutState.SlotStates.Num(); ++i)
+        {
+            if (!OutState.SlotStates[i].IsEmpty())
+            {
+                UE_LOG(LogTemp, Warning, TEXT("  Slot %d: %s x%d"), 
+                    i, 
+                    *OutState.SlotStates[i].ItemInfo.ItemName.ToString(),
+                    OutState.SlotStates[i].Quantity);
+            }
+        }
         return true;
     }
     return false;
@@ -339,6 +388,87 @@ void ALotACharacter::OnTotalWeightChanged(float NewTotalWeight)
     GetCharacterMovement()->MaxWalkSpeed = BaseWalkSpeed * SpeedMult;
 }
 
+bool ALotACharacter::ValidateBagOperation(const FS_ItemInfo& BagInfo, FText& OutErrorMessage) const
+{
+    if (BagInfo.ItemType != EItemType::Bag)
+    {
+        OutErrorMessage = NSLOCTEXT("Inventory", "NotABag", "Item is not a bag");
+        return false;
+    }
+
+    // Check if bag already exists
+    FName BagKey = GenerateBagKey(BagInfo);
+    if (UBagComponent* ExistingBag = FindBagComponent(BagKey))
+    {
+        // Only allow if bag is empty
+        if (!ExistingBag->IsBagEmpty())
+        {
+            OutErrorMessage = NSLOCTEXT("Inventory", "BagNotEmpty", "Cannot move a bag that contains items");
+            return false;
+        }
+    }
+
+    // Check nesting depth
+    TArray<FName> BagKeys;
+    GetAllActiveBagKeys(BagKeys);
+    if (BagKeys.Num() >= MaxBagNestingDepth)
+    {
+        OutErrorMessage = FText::Format(
+            NSLOCTEXT("Inventory", "MaxNestingDepth", "Cannot nest more than {0} bags"),
+            FText::AsNumber(MaxBagNestingDepth));
+        return false;
+    }
+
+    return true;
+}
+
+bool ALotACharacter::HasCircularBagReference(const FName& BagKey, const FName& TargetBagKey) const
+{
+    if (!IsBagKeyValid(BagKey) || !IsBagKeyValid(TargetBagKey))
+    {
+        return false;
+    }
+
+    TSet<FName> VisitedKeys;
+    return CheckCircularReference(BagKey, TargetBagKey, VisitedKeys);
+}
+
+void ALotACharacter::GetAllActiveBagKeys(TArray<FName>& OutBagKeys) const
+{
+    OutBagKeys.Empty();
+    for (const auto& Pair : ActiveBagComponents)
+    {
+        OutBagKeys.Add(Pair.Key);
+    }
+}
+
+void ALotACharacter::SaveAllBagsAndClose()
+{
+    UE_LOG(LogTemp, Warning, TEXT("Saving and closing all bags"));
+    
+    // Make a copy of the map keys since we'll be modifying the map
+    TArray<FName> BagKeys;
+    ActiveBagComponents.GenerateKeyArray(BagKeys);
+
+    // Save and close each bag
+    for (const FName& BagKey : BagKeys)
+    {
+        if (UBagComponent* BagComp = FindBagComponent(BagKey))
+        {
+            UE_LOG(LogTemp, Warning, TEXT("Saving and closing bag: %s"), *BagKey.ToString());
+            BagComp->SaveState();
+            BagComp->CloseBag();
+        }
+    }
+
+    // Final save of overall bag state
+    if (HasAuthority())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Final save of bag state data"));
+        SaveAllBagStates();
+    }
+}
+
 void ALotACharacter::RemoveBagComponent(UBagComponent* BagComp)
 {
     if (!BagComp) return;
@@ -356,7 +486,6 @@ void ALotACharacter::RemoveBagComponent(UBagComponent* BagComp)
 
 void ALotACharacter::ServerPickupItem_Implementation(AItemBase* ItemActor)
 {
-    // This is kept for compatibility but delegates to InteractionComponent
     if (InteractionComponent)
     {
         InteractionComponent->TryInteract();
@@ -396,6 +525,43 @@ int32 ALotACharacter::FindOrCreateSlotIndex(UBagComponent* Bag, const FS_ItemInf
     return FirstEmpty;
 }
 
+bool ALotACharacter::CheckCircularReference(const FName& StartBagKey, const FName& TargetBagKey, TSet<FName>& VisitedKeys) const
+{
+    // Guard against infinite recursion
+    if (VisitedKeys.Contains(StartBagKey))
+    {
+        return false;
+    }
+
+    VisitedKeys.Add(StartBagKey);
+
+    // Check if this is the target bag
+    if (StartBagKey == TargetBagKey)
+    {
+        return true;
+    }
+
+    // Get the bag component
+    if (UBagComponent* BagComp = FindBagComponent(StartBagKey))
+    {
+        // Check each bag in this bag's slots
+        const TArray<FBagSlotState>& Slots = BagComp->GetSlotStates();
+        for (const FBagSlotState& Slot : Slots)
+        {
+            if (!Slot.IsEmpty() && Slot.ItemInfo.ItemType == EItemType::Bag)
+            {
+                FName NestedBagKey = GenerateBagKey(Slot.ItemInfo);
+                if (CheckCircularReference(NestedBagKey, TargetBagKey, VisitedKeys))
+                {
+                    return true;
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
 void ALotACharacter::UpdateBagWeights()
 {
     for (auto& Pair : ActiveBagComponents)
@@ -418,4 +584,17 @@ FName ALotACharacter::GenerateBagKey(const FS_ItemInfo& BagInfo) const
 bool ALotACharacter::IsBagKeyValid(const FName& BagKey) const
 {
     return !BagKey.IsNone() && BagKey.ToString().StartsWith(TEXT("Bag_"));
+}
+
+void ALotACharacter::SaveAllBagStates_Implementation()
+{
+    UE_LOG(LogTemp, Warning, TEXT("Server: Saving all bag states."));
+	
+    for (const auto& Pair : ActiveBagComponents)
+    {
+        if (UBagComponent* Bag = Pair.Value)
+        {
+            Bag->SaveState();
+        }
+    }
 }
